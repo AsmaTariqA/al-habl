@@ -39,19 +39,16 @@ async function getContentToken(): Promise<string> {
     `${publicConfig.QF_AUTH_URL}/oauth2/token`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        scope: 'content',
-      }).toString(),
-      // Basic auth: client_id:client_secret
-      // @ts-ignore — this runs server-side only
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Authorization': `Basic ${Buffer.from(
           `${process.env.NEXT_PUBLIC_QF_CLIENT_ID}:${process.env.QF_CLIENT_SECRET}`
         ).toString('base64')}`,
       },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        scope: 'content',
+      }).toString(),
     }
   )
 

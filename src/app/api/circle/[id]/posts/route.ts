@@ -13,7 +13,7 @@ export async function GET(
   }
 
   const { id } = await context.params
-  const posts = await getRoomPosts(auth.accessToken, id)
+  const posts = await getRoomPosts(auth.accessToken, id).catch(() => [])
 
   return NextResponse.json({
     posts: (posts ?? []).filter((post) => isSameStudyDate(post.created_at)),

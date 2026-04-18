@@ -8,7 +8,9 @@
       "Bash(curl -s -X POST https://prelive-oauth2.quran.foundation/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' -u '1f7948e1-1ff6-405b-b72f-c305d083ca00:RV2OxRrsk~P2Bqfy9.l7-.TBDS' -d 'grant_type=client_credentials&scope=content')",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Root keys:', list\\(d.keys\\(\\)\\)\\); af=d.get\\('audio_files',[]\\); print\\('audio_files count:', len\\(af\\)\\); print\\('first:', json.dumps\\(af[0]\\) if af else 'NONE'\\)\")",
       "Bash(curl *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(git push *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

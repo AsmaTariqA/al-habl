@@ -12,15 +12,16 @@ export async function GET(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await context.params
-  const [room, members, posts] = await Promise.all([
+  const [room, membersResult, postsResult] = await Promise.all([
     getRoom(auth.accessToken, id),
-    getRoomMembers(auth.accessToken, id),
-    getRoomPosts(auth.accessToken, id),
+    getRoomMembers(auth.accessToken, id).catch(() => null),
+    getRoomPosts(auth.accessToken, id).catch(() => null),
   ])
 
   if (!room) return NextResponse.json({ error: "Circle not found." }, { status: 404 })
 
   // Sync true member count from QF into Supabase
+  const members = membersResult
   const trueCount = members?.length ?? room.member_count
   const supabase = getSupabaseAdmin()
   await supabase
@@ -31,7 +32,7 @@ export async function GET(
   const response = NextResponse.json({
     room: { ...room, member_count: trueCount },
     members: members ?? [],
-    posts: (posts ?? []).filter((post) => isSameStudyDate(post.created_at)),
+    posts: (postsResult ?? []).filter((post) => isSameStudyDate(post.created_at)),
   })
   setRoomCookie(response, id)
   return response

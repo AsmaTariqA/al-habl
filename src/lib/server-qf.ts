@@ -13,6 +13,7 @@ export async function getRequestAccessToken(request: NextRequest) {
 
   const session = await getUserSession(userId)
   if (!session?.accessToken) {
+    console.warn(`[getRequestAccessToken] No session found for userId: ${userId}`)
     return null
   }
 
@@ -22,6 +23,7 @@ export async function getRequestAccessToken(request: NextRequest) {
     : session
 
   if (!activeSession?.accessToken) {
+    console.warn(`[getRequestAccessToken] Session refresh failed for userId: ${userId}`)
     return null
   }
 

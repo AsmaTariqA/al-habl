@@ -327,12 +327,12 @@ export async function createRoom(accessToken: string, name: string, description 
 }
 
 export async function getRoom(accessToken: string, roomId: string) {
-  const data = await safeFetch<unknown>(`/rooms/${roomId}`, undefined, accessToken)
+  const data = await safeFetch<unknown>(`/rooms/${roomId}`, {}, accessToken)
   return normalizeRoom(data)
 }
 
 export async function getRoomMembers(accessToken: string, roomId: string) {
-  const data = await safeFetch<unknown>(`/rooms/${roomId}/members`, undefined, accessToken)
+  const data = await safeFetch<unknown>(`/rooms/${roomId}/members`, {}, accessToken)
   return normalizeMembers(data)
 }
 
@@ -377,12 +377,12 @@ export async function inviteToRoom(accessToken: string, roomId: string, userId: 
 }
 
 export async function getUserRooms(accessToken: string) {
-  const data = await safeFetch<unknown>("/users/my-rooms?limit=5", undefined, accessToken)
+  const data = await safeFetch<unknown>("/users/my-rooms?limit=5", {}, accessToken)
   return normalizeRoomArray(data)
 }
 
 export async function getUserRoomsResult(accessToken: string) {
-  const result = await safeFetchResult<unknown>("/users/my-rooms?limit=5", undefined, accessToken)
+  const result = await safeFetchResult<unknown>("/users/my-rooms?limit=5", {}, accessToken)
   return { rooms: normalizeRoomArray(result.data), error: result.error }
 }
 
@@ -418,17 +418,17 @@ export async function getRoomPosts(accessToken: string, roomId: string) {
 
     if (data == null) return []
 
-    return normalizePosts(data) // ✅ FIXED
+    return normalizePosts(data)
   } catch (err: unknown) {
     clearTimeout(timeout)
 
     if (timedOut) {
       console.warn(`[getRoomPosts] Timed out for room ${roomId}`)
-      return []
+      throw new Error(`Request timed out for room ${roomId}`)
     }
 
     console.warn(`[getRoomPosts] Failed for room ${roomId}:`, err)
-    return []
+    throw err
   }
 }
 
@@ -448,20 +448,13 @@ export async function createPost(accessToken: string, body: string, roomId: stri
     },
   }
 
-  const response = await fetch(`${USER_BASE}/posts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json", "x-auth-token": accessToken, "x-client-id": CLIENT_ID },
-    body: JSON.stringify(payload),
-  })
+  const result = await safeFetchResult<unknown>("/posts", { method: "POST", body: JSON.stringify(payload) }, accessToken)
 
-  if (!response.ok) {
-    const err = await response.text()
-    console.error(`createPost failed: ${response.status} ${err}`)
+  if (result.error) {
     return null
   }
 
-  const data = await response.json()
-  return normalizePost(pickPayload(data, ["post", "data"]) ?? data)
+  return normalizePost(pickPayload(result.data, ["post", "data"]) ?? result.data)
 }
 
 export async function likePost(accessToken: string, postId: string) {
@@ -469,7 +462,7 @@ export async function likePost(accessToken: string, postId: string) {
 }
 
 export async function getComments(accessToken: string, postId: string) {
-  const data = await safeFetch<unknown>(`/posts/${postId}/comments`, undefined, accessToken)
+  const data = await safeFetch<unknown>(`/posts/${postId}/comments`, {}, accessToken)
   return normalizeComments(data)
 }
 
@@ -483,12 +476,12 @@ export async function createComment(accessToken: string, postId: string, body: s
 
 
 export async function getStreaks(accessToken: string) {
-  const data = await safeFetch<unknown>("/streaks?first=1&status=ACTIVE&type=QURAN", undefined, accessToken, true, AUTH_BASE)
+  const data = await safeFetch<unknown>("/streaks?first=1&status=ACTIVE&type=QURAN", {}, accessToken, true, AUTH_BASE)
   return normalizeStreak(data)
 }
 
 export async function getActivityDays(accessToken: string) {
-  const data = await safeFetch<unknown>("/activity-days?first=20", undefined, accessToken, true, AUTH_BASE)
+  const data = await safeFetch<unknown>("/activity-days?first=20", {}, accessToken, true, AUTH_BASE)
   return normalizeActivityDays(data)
 }
 
@@ -509,12 +502,12 @@ export async function bookmarkVerse(accessToken: string, verseKey: string) {
 }
 
 export async function getBookmarks(accessToken: string) {
-  const data = await safeFetch<unknown>("/bookmarks?first=20&mushafId=1", undefined, accessToken, true, AUTH_BASE)
+  const data = await safeFetch<unknown>("/bookmarks?first=20&mushafId=1", {}, accessToken, true, AUTH_BASE)
   return normalizeBookmarks(data)
 }
 
 export async function getCollections(accessToken: string) {
-  const data = await safeFetch<unknown>("/collections?first=20", undefined, accessToken, true, AUTH_BASE)
+  const data = await safeFetch<unknown>("/collections?first=20", {}, accessToken, true, AUTH_BASE)
   return normalizeCollections(data)
 }
 
@@ -540,7 +533,7 @@ export async function createNote(accessToken: string, verseKey: string, body: st
 }
 
 export async function getNotes(accessToken: string) {
-  const data = await safeFetch<unknown>("/notes?limit=20", undefined, accessToken, true, AUTH_BASE)
+  const data = await safeFetch<unknown>("/notes?limit=20", {}, accessToken, true, AUTH_BASE)
   return normalizeNotes(data)
 }
 
