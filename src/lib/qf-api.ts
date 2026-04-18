@@ -633,8 +633,7 @@ export async function deletePost(accessToken: string, postId: string) {
 }
 
 export async function getUserProfile(accessToken: string) {
-  // Try USER_BASE first, fall back silently
-  const result = await safeFetchResult<unknown>("/users/profile", undefined, accessToken, true, USER_BASE)
+  const result = await safeFetchResult<unknown>("/users/profile", {}, accessToken, true, USER_BASE)
   if (result.error?.status === 404 || result.error?.status === 0) return null
   return normalizeProfile(result.data)
 }
