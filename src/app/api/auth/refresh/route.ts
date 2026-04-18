@@ -3,20 +3,18 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
-  const cookieStore =  await cookies()
+  const cookieStore = await cookies()
 
-  // Read userId from httpOnly cookie (server can read it, client JS cannot)
   const userId = cookieStore.get('qf_user_id')?.value
 
-  // Fall back to body for backwards compat
-  if (!userId) {
+  let resolvedUserId = userId
+  if (!resolvedUserId) {
     const body = await request.json().catch(() => ({}))
     if (!body.userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
+    resolvedUserId = body.userId
   }
-
-  const resolvedUserId = userId ?? (await request.json().catch(() => ({}))).userId
 
   const supabase = getSupabaseAdmin()
   const { data: session } = await supabase
@@ -32,7 +30,6 @@ export async function POST(request: NextRequest) {
   const expiresAt = new Date(session.expires_at)
   const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000)
 
-  // Token still valid
   if (expiresAt > fiveMinFromNow) {
     return NextResponse.json({
       access_token: session.access_token,
@@ -40,17 +37,21 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Token expired — refresh it
+  const basicAuth = Buffer.from(
+    `${process.env.NEXT_PUBLIC_QF_CLIENT_ID}:${process.env.QF_CLIENT_SECRET}`
+  ).toString('base64')
+
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_QF_AUTH_URL}/oauth2/token`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${basicAuth}`,
+      },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: session.refresh_token,
-        client_id: process.env.NEXT_PUBLIC_QF_CLIENT_ID!,
-        client_secret: process.env.QF_CLIENT_SECRET!,
       }),
     }
   )

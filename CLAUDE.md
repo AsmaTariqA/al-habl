@@ -1,201 +1,110 @@
-Here’s a **strong, production-grade prompt you can give Claude Code** to debug your entire codebase and fix deployment issues systematically.
-
-You can copy-paste this directly:
+Here's a comprehensive prompt you can paste directly into Claude Code:
 
 ---
 
-### 🧠 DEBUGGING PROMPT FOR CLAUDE CODE (FULL CODEBASE + DEPLOYMENT STABILITY)
+**Project: Al-Habl (Next.js app on Vercel)**
+`https://al-habl.vercel.app`
 
-You are a senior full-stack engineer specializing in **Next.js (App Router), TypeScript, and production API integrations**.
-
-I want you to debug an entire codebase that is currently working partially in production but failing in specific areas after deployment.
-
----
-
-## 🎯 GOAL
-
-Ensure the application runs **fully stable in production and local environments**, with:
-
-* No API 500 errors
-* No missing data issues (posts, members, rooms, profile)
-* Correct authentication handling
-* Consistent behavior between local and deployed environments
-* Fully working circle/room system (create, join, fetch, post, comments)
+**Stack:** Next.js 15 (App Router), Supabase, Quran Foundation OAuth2 API, TypeScript
 
 ---
 
-## 🚨 CURRENT ISSUES (IMPORTANT CONTEXT)
+**What we've debugged and confirmed:**
 
-After deployment:
+1. **Auth flow overview:**
+   - User logs in via QF OAuth2 (PKCE flow)
+   - `/api/auth/callback` exchanges code for tokens, stores them in Supabase `user_sessions` table, sets `qf_user_id` as httpOnly cookie
+   - `getClientAccessToken()` in `lib/client-access.ts` calls `/api/auth/refresh` which reads the httpOnly cookie server-side, looks up Supabase, refreshes if expired, returns fresh token
+   - All QF API calls in `lib/qf-api.ts` pass this token as `x-auth-token` header plus `x-client-id`
 
-* `/users/profile` returns **500 Internal Server Error**
-* `/rooms/{id}/posts` returns **500**
-* `/rooms/{id}/members` returns **500**
-* Posts cannot be created (“we couldn’t load your circles” error)
-* Rooms can be created successfully
-* Some APIs work (audio, tafsir, profile sometimes, chat partially works)
+2. **Root cause found:** The QF OAuth server requires `client_secret_basic` authentication method — credentials must be sent as `Authorization: Basic base64(clientId:clientSecret)` header. Currently the code sends `client_id` and `client_secret` in the request body (`client_secret_post`), which the server rejects with `invalid_client` 401.
 
-Local vs Production mismatch exists.
+3. **This affects two places:**
+   - `app/api/auth/refresh/route.ts` — token refresh call
+   - `lib/auth.ts` — initial `exchangeCodeForToken` function (same bug, same fix needed)
 
----
-
-## 🧩 CODEBASE CONTEXT
-
-Stack:
-
-* Next.js App Router (React Server + Client components)
-* TypeScript
-* External API: `quran.foundation` (QF API)
-* Auth system using `x-auth-token`
-* Environment variables configured in Vercel
-* Custom API wrappers in `lib/qf-api.ts`
-* Server-side helpers: `getRequestAccessToken`
-* Client session stored in `session.ts`
+4. **Secondary issue confirmed and fixed:** `getClientAccessToken()` was reading `localStorage.getItem('qf_user_id')` which is always null on prod because the callback sets an httpOnly cookie, not localStorage. This is already fixed — the refresh route now reads the cookie server-side and the client calls `/api/auth/refresh` with an empty body + `credentials: 'include'`.
 
 ---
 
-## 🔍 WHAT YOU MUST DO
+**Exact fix needed:**
 
-### 1. FULL SYSTEM AUDIT
+In every place that calls `POST /oauth2/token`, replace `client_secret_post` style:
 
-Analyze:
+```ts
+// ❌ WRONG — body contains credentials
+body: new URLSearchParams({
+  grant_type: "refresh_token",
+  refresh_token: session.refresh_token,
+  client_id: process.env.NEXT_PUBLIC_QF_CLIENT_ID!,
+  client_secret: process.env.QF_CLIENT_SECRET!,
+})
+```
 
-* API layer (`safeFetch`, `safeFetchResult`)
-* Auth token propagation (client → server → API)
-* Room / post / member endpoints
-* Environment variables usage in production
-* Next.js route handlers (`/api/circle`, `/api/circle/[id]`)
-* Header consistency (`x-auth-token`, `x-client-id`)
+With `client_secret_basic` style:
+
+```ts
+// ✅ CORRECT — credentials in Authorization header
+const basicAuth = Buffer.from(
+  `${process.env.NEXT_PUBLIC_QF_CLIENT_ID}:${process.env.QF_CLIENT_SECRET}`
+).toString("base64")
+
+// headers:
+"Authorization": `Basic ${basicAuth}`,
+"Content-Type": "application/x-www-form-urlencoded",
+
+// body — no client_id or client_secret:
+body: new URLSearchParams({
+  grant_type: "refresh_token",
+  refresh_token: session.refresh_token,
+})
+```
+
+For the initial code exchange (`grant_type: authorization_code`), same pattern:
+
+```ts
+body: new URLSearchParams({
+  grant_type: "authorization_code",
+  code: code,
+  redirect_uri: process.env.NEXT_PUBLIC_QF_REDIRECT_URI!,
+  code_verifier: codeVerifier,
+  // ← no client_id or client_secret in body
+})
+```
+
+---
+FIX the files that needs to be fixed
 
 ---
 
-### 2. FIND ROOT CAUSE (NOT SYMPTOMS)
+**Environment variables on Vercel (all confirmed present):**
 
-Do NOT just patch errors.
-
-You must determine:
-
-* Why production returns 500 while local works
-* Whether token is missing, malformed, or expired in server context
-* Whether headers are dropped in server actions / route handlers
-* Whether API base URLs differ in deployment
-* Whether request forwarding is broken in Next.js API routes
-
----
-
-### 3. AUTH FLOW VERIFICATION
-
-Validate full auth chain:
-
-1. Browser stores token (`qf_token`)
-2. Request sent via `/api/*`
-3. Server extracts token (`getRequestAccessToken`)
-4. Token forwarded to QF API
-5. QF API responds correctly
-
-Check for:
-
-* Missing `x-auth-token` in server fetch
-* Token not forwarded in POST/GET routes
-* Inconsistent header casing or overwrites
+```
+NEXT_PUBLIC_QF_API_URL=https://apis.quran.foundation
+NEXT_PUBLIC_QF_AUTH_URL=https://oauth2.quran.foundation
+NEXT_PUBLIC_QF_CLIENT_ID=416d6683-0b5d-4273-89d4-4e5dda796d39
+NEXT_PUBLIC_QF_REDIRECT_URI=https://al-habl.vercel.app/auth/callback
+QF_CLIENT_SECRET=UsTU_5BkvFzr1bVr.oWRfxPaxW
+NEXT_PUBLIC_SUPABASE_URL=https://sohlcesowlbxtuqgfwmu.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
 
 ---
 
-### 4. API DEBUGGING
+**After fixing, verify with:**
 
-Inspect:
+`GET https://al-habl.vercel.app/api/debug/force-refresh`
 
-* `safeFetch` and `safeFetchResult`
-* Error normalization (`normalizeApiError`)
-* Whether `USER_BASE`, `AUTH_BASE`, `CONTENT_BASE` are correct in prod
-* Whether fetch fails silently in server runtime
+Expected result:
+```json
+{
+  "refresh": "success",
+  "profile_test": { "status": 200, "body": { ... } }
+}
+```
 
-Add logging strategy:
+If `profile_test.status` is 200, everything is working. The rooms, posts, members, and profile endpoints will all start working immediately since the token flow is the only thing broken.
 
-* log outgoing URL
-* log headers (without exposing secrets)
-* log response status + body safely
 
----
-
-### 5. NEXT.JS DEPLOYMENT ISSUES
-
-Check:
-
-* Edge vs Node runtime mismatch
-* Missing `fetch` polyfills
-* Serverless timeout issues
-* Vercel environment variable availability
-* Route handler caching issues
-
----
-
-### 6. DATA NORMALIZATION ISSUES
-
-Ensure:
-
-* `normalizeRoom`, `normalizePosts`, `normalizeMembers` never break on undefined
-* API response shape differences between environments handled safely
-
----
-
-### 7. ERROR HANDLING IMPROVEMENTS
-
-Ensure:
-
-* No silent failures returning empty arrays incorrectly
-* Proper fallback messages in UI
-* No false “we couldn’t load circles” when it's auth failure
-
----
-
-## 🛠️ REQUIRED OUTPUT
-
-Return:
-
-### A. ROOT CAUSE ANALYSIS
-
-Explain exact reason(s) for production failure.
-
-### B. FILES THAT MUST BE FIXED
-
-List exact files and lines.
-
-### C. PATCHES / FIXES
-
-Provide corrected code blocks.
-
-### D. DEPLOYMENT HARDENING FIXES
-
-* env fixes
-* header fixes
-* runtime fixes
-
-### E. STABILITY IMPROVEMENTS
-
-How to prevent this happening again.
-
----
-
-## ⚠️ RULES
-
-* Do NOT guess blindly
-* Do NOT suggest unrelated refactors
-* Focus on production breakage only
-* Be extremely precise
-* Assume this is a real production app with real users
-
----
-
-## 🔥 FINAL OBJECTIVE
-
-Make the app:
-
-> 100% consistent between local and production, with no API failures, no auth issues, and fully working circle/post/member system.
-
----
-
-If you want, I can also:
-
-* debug this code myself and tell you the exact bug (I already see a few likely ones 👀)
-* or help you simplify this API layer so this never breaks again in production
+ENSURE reading .env.local for correct vars
