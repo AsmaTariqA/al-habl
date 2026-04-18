@@ -14,12 +14,9 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = 'al-habl-theme';
 
 function getInitialTheme(): Theme {
-  if (typeof window === 'undefined') {
-    return 'dark';
-  }
-
-  const savedTheme = localStorage.getItem(STORAGE_KEY) as Theme | null;
-  return savedTheme ?? 'dark';
+  if (typeof window === 'undefined') return 'dark';
+  const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
+  return saved ?? 'dark';
 }
 
 function applyTheme(theme: Theme) {
@@ -28,6 +25,8 @@ function applyTheme(theme: Theme) {
   html.classList.add(`theme-${theme}`);
   html.style.colorScheme = theme;
   document.body.style.colorScheme = theme;
+  // Prevent flash of wrong theme on next page load
+  localStorage.setItem(STORAGE_KEY, theme);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -40,7 +39,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const toggleTheme = () => {
     const nextTheme: Theme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
-    localStorage.setItem(STORAGE_KEY, nextTheme);
   };
 
   return (
@@ -52,8 +50,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 export function useTheme() {
   const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme must be used within ThemeProvider');
-  }
+  if (!context) throw new Error('useTheme must be used within ThemeProvider');
   return context;
 }

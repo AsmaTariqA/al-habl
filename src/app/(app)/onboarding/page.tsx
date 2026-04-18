@@ -26,19 +26,15 @@ export default function OnboardingPage() {
   const [joinError, setJoinError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
 
-  // Check if user already has a room
- useEffect(() => {
-  fetch("/api/circle")
-    .then(r => r.json())
-    .then((data: { room?: { id: string } | null; circles?: CircleRow[] }) => {
-      // ✅ Always show available circles (including joined ones)
-      setCircles(data.circles ?? [])
-    })
-    .catch(() => {
-      // optional: you can set an error state here later
-    })
-    .finally(() => setCirclesLoading(false))
-}, [])
+  useEffect(() => {
+    fetch("/api/circle")
+      .then(r => r.json())
+      .then((data: { room?: { id: string } | null; circles?: CircleRow[] }) => {
+        setCircles(data.circles ?? [])
+      })
+      .catch(() => {})
+      .finally(() => setCirclesLoading(false))
+  }, [])
 
   const filteredCircles = circles.filter(c =>
     !search || c.name.toLowerCase().includes(search.toLowerCase())
@@ -95,111 +91,203 @@ export default function OnboardingPage() {
     router.push("/circle")
   }
 
-  return (
-    <div className="min-h-screen bg-[var(--ink)] px-4 py-8 text-[var(--text)]">
-      <div className="mx-auto max-w-[960px] space-y-8">
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '0.65rem 1rem',
+    background: 'var(--glass-strong)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: 'var(--radius-md)',
+    color: 'var(--text)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '0.9rem',
+    lineHeight: 1.5,
+    outline: 'none',
+    transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+  }
 
-        <div className="text-center space-y-3 pt-4">
-          <p className="text-xs font-semibold tracking-widest uppercase text-[var(--muted)]">
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--ink)', color: 'var(--text)', padding: '2rem 1rem' }}>
+
+      {/* Ambient glow */}
+      <div aria-hidden="true" style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'radial-gradient(ellipse 50% 40% at 50% 0%, rgba(201,168,76,0.08), transparent)',
+        pointerEvents: 'none',
+        zIndex: 0,
+      }} />
+
+      <div style={{ position: 'relative', zIndex: 1, margin: '0 auto', maxWidth: '960px', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+
+        {/* Hero header */}
+        <div style={{ textAlign: 'center', paddingTop: '1rem' }}>
+          <span className="muted-kicker" style={{ justifyContent: 'center', marginBottom: '1rem', display: 'flex' }}>
             Circle Onboarding
-          </p>
-          <h1 className="text-3xl font-semibold">Start or join your daily study circle</h1>
-          <p className="text-[var(--muted)] max-w-md mx-auto text-sm">
+          </span>
+          <h1 style={{ fontSize: 'clamp(1.75rem, 5vw, 2.75rem)', fontWeight: 700, letterSpacing: '-0.04em', marginBottom: '0.75rem' }}>
+            Start or join your daily study circle
+          </h1>
+          <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', maxWidth: '40ch', margin: '0 auto', lineHeight: 1.75 }}>
             Every day, the same ayah. The same five lenses. The same companions returning with you.
           </p>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        {/* Two panels */}
+        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
 
-          {/* Create a circle */}
-          <section className="rounded-2xl border border-white/8 bg-white/3 p-6 space-y-4">
+          {/* Create */}
+          <section className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
-              <p className="text-xs font-semibold tracking-widest uppercase text-[var(--muted)] mb-1">
+              <span style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.65rem',
+                fontWeight: 600,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                color: 'var(--gold)',
+                display: 'block',
+                marginBottom: '0.5rem',
+              }}>
                 Option A
-              </p>
-              <h2 className="text-2xl font-semibold">Create a Circle</h2>
-              <p className="text-sm text-[var(--muted)] mt-1">
-                Start your own circle. Others on Al-Habl can join it.
+              </span>
+              <h2 style={{ fontSize: '1.375rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.35rem' }}>
+                Create a Circle
+              </h2>
+              <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.65 }}>
+                Start your own circle. Others on Al-Habl can find and join it.
               </p>
             </div>
 
-            <input
-              className="w-full rounded-xl border border-white/10 bg-white/4 px-4 py-2.5 text-sm placeholder:text-[var(--muted)] focus:outline-none focus:border-white/20"
-              placeholder="Circle name e.g. Morning Brothers"
-              value={circleName}
-              onChange={e => setCircleName(e.target.value)}
-            />
+            <div className="divider" />
 
-            <textarea
-              className="w-full rounded-xl border border-white/10 bg-white/4 px-4 py-2.5 text-sm placeholder:text-[var(--muted)] focus:outline-none focus:border-white/20 min-h-[80px] resize-none"
-              placeholder="Description (optional)"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              <input
+                style={inputStyle}
+                placeholder="Circle name e.g. Morning Brothers"
+                value={circleName}
+                onChange={e => setCircleName(e.target.value)}
+                onFocus={e => { (e.target as HTMLInputElement).style.borderColor = 'var(--gold-border)'; (e.target as HTMLInputElement).style.boxShadow = '0 0 0 3px var(--gold-dim)' }}
+                onBlur={e => { (e.target as HTMLInputElement).style.borderColor = 'var(--glass-border)'; (e.target as HTMLInputElement).style.boxShadow = 'none' }}
+              />
+              <textarea
+                style={{ ...inputStyle, minHeight: '80px', resize: 'none' }}
+                placeholder="Description (optional)"
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                onFocus={e => { (e.target as HTMLTextAreaElement).style.borderColor = 'var(--gold-border)'; (e.target as HTMLTextAreaElement).style.boxShadow = '0 0 0 3px var(--gold-dim)' }}
+                onBlur={e => { (e.target as HTMLTextAreaElement).style.borderColor = 'var(--glass-border)'; (e.target as HTMLTextAreaElement).style.boxShadow = 'none' }}
+              />
+            </div>
 
             {createError && (
-              <p className="text-sm text-red-300/80 rounded-xl border border-red-300/20 bg-red-300/10 px-3 py-2">
+              <div style={{
+                padding: '0.65rem 0.875rem',
+                background: 'rgba(239,68,68,0.06)',
+                border: '1px solid rgba(239,68,68,0.18)',
+                borderRadius: 'var(--radius-sm)',
+                color: '#f87171',
+                fontSize: '0.85rem',
+                lineHeight: 1.5,
+              }}>
                 {createError}
-              </p>
+              </div>
             )}
 
             <button
               type="button"
               onClick={() => void handleCreateCircle()}
               disabled={createLoading}
-              className="w-full rounded-xl bg-[var(--gold)] py-2.5 text-sm font-semibold text-[var(--ink)] hover:opacity-90 transition-opacity disabled:opacity-40"
+              className="button-primary"
+              style={{ width: '100%', padding: '0.75rem' }}
             >
-              {createLoading ? "Creating…" : "Create Circle"}
+              {createLoading ? "Creating…" : "Create Circle →"}
             </button>
           </section>
 
-          {/* Browse and join */}
-          <section className="rounded-2xl border border-white/8 bg-white/3 p-6 space-y-4">
+          {/* Join */}
+          <section className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
-              <p className="text-xs font-semibold tracking-widest uppercase text-[var(--muted)] mb-1">
+              <span style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.65rem',
+                fontWeight: 600,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                color: 'var(--gold)',
+                display: 'block',
+                marginBottom: '0.5rem',
+              }}>
                 Option B
-              </p>
-              <h2 className="text-2xl font-semibold">Join a Circle</h2>
-              <p className="text-sm text-[var(--muted)] mt-1">
-                Browse circles created by Al-Habl users.
+              </span>
+              <h2 style={{ fontSize: '1.375rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.35rem' }}>
+                Join a Circle
+              </h2>
+              <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.65 }}>
+                Browse circles created by Al-Habl users and join one.
               </p>
             </div>
 
-            <input
-              className="w-full rounded-xl border border-white/10 bg-white/4 px-4 py-2.5 text-sm placeholder:text-[var(--muted)] focus:outline-none focus:border-white/20"
-              placeholder="Search by name…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+            <div className="divider" />
+
+            <div style={{ position: 'relative' }}>
+              <input
+                style={{ ...inputStyle, paddingRight: '2.5rem' }}
+                placeholder="Search by name…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onFocus={e => { (e.target as HTMLInputElement).style.borderColor = 'var(--gold-border)'; (e.target as HTMLInputElement).style.boxShadow = '0 0 0 3px var(--gold-dim)' }}
+                onBlur={e => { (e.target as HTMLInputElement).style.borderColor = 'var(--glass-border)'; (e.target as HTMLInputElement).style.boxShadow = 'none' }}
+              />
+              <svg style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }}
+                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+              </svg>
+            </div>
 
             {joinError && (
-              <p className="text-sm text-red-300/80 rounded-xl border border-red-300/20 bg-red-300/10 px-3 py-2">
+              <div style={{
+                padding: '0.65rem 0.875rem',
+                background: 'rgba(239,68,68,0.06)',
+                border: '1px solid rgba(239,68,68,0.18)',
+                borderRadius: 'var(--radius-sm)',
+                color: '#f87171',
+                fontSize: '0.85rem',
+              }}>
                 {joinError}
-              </p>
+              </div>
             )}
 
-            <div className="space-y-2 max-h-72 overflow-y-auto">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '280px', overflowY: 'auto' }} className="scrollbar-none">
               {circlesLoading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-14 rounded-xl bg-white/4 animate-pulse" />
+                [0,1,2].map(i => (
+                  <div key={i} className="skeleton" style={{ height: '60px', borderRadius: 'var(--radius-md)' }} />
                 ))
               ) : filteredCircles.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-sm text-[var(--muted)]">
-                    {circles.length === 0
-                      ? "No circles yet. Be the first to create one."
-                      : "No circles match your search."}
-                  </p>
+                <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                  {circles.length === 0
+                    ? "No circles yet — be the first to create one."
+                    : `No circles match "${search}"`}
                 </div>
               ) : (
                 filteredCircles.map(circle => (
                   <div
                     key={circle.id}
-                    className="flex items-center justify-between rounded-xl border border-white/8 bg-white/3 px-4 py-3"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '0.75rem 1rem',
+                      background: 'var(--glass)',
+                      border: '1px solid var(--glass-border)',
+                      borderRadius: 'var(--radius-md)',
+                      gap: '0.75rem',
+                    }}
                   >
-                    <div className="min-w-0 mr-3">
-                      <p className="text-sm font-medium truncate">{circle.name}</p>
-                      <p className="text-xs text-[var(--muted)]">
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: '0.9rem', fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--text)', marginBottom: '0.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {circle.name}
+                      </p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
                         {circle.member_count} {circle.member_count === 1 ? "member" : "members"}
                       </p>
                     </div>
@@ -207,7 +295,29 @@ export default function OnboardingPage() {
                       type="button"
                       onClick={() => void handleJoinCircle(circle.id)}
                       disabled={joiningId === circle.id}
-                      className="flex-shrink-0 rounded-xl border border-[var(--gold-border)] bg-[var(--gold-dim)] px-3 py-1.5 text-xs text-[var(--gold)] hover:bg-[var(--gold)] hover:text-[var(--ink)] transition-all disabled:opacity-40"
+                      style={{
+                        flexShrink: 0,
+                        padding: '0.4rem 0.875rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--gold-border)',
+                        background: 'var(--gold-dim)',
+                        color: 'var(--gold)',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        opacity: joiningId === circle.id ? 0.5 : 1,
+                      }}
+                      onMouseEnter={e => {
+                        if (joiningId !== circle.id) {
+                          (e.currentTarget as HTMLButtonElement).style.background = 'var(--gold)';
+                          (e.currentTarget as HTMLButtonElement).style.color = '#0F0E0C';
+                        }
+                      }}
+                      onMouseLeave={e => {
+                        (e.currentTarget as HTMLButtonElement).style.background = 'var(--gold-dim)';
+                        (e.currentTarget as HTMLButtonElement).style.color = 'var(--gold)';
+                      }}
                     >
                       {joiningId === circle.id ? "Joining…" : "Join"}
                     </button>
@@ -219,37 +329,69 @@ export default function OnboardingPage() {
         </div>
       </div>
 
-      {/* Created circle sheet */}
+      {/* Success sheet */}
       {createdInviteCode && (
         <>
           <button
             type="button"
-            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            aria-label="Close"
             onClick={() => setCreatedInviteCode(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', cursor: 'pointer', border: 'none' }}
           />
-          <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg rounded-t-[28px] border-t border-white/8 bg-[#161411] p-6 pb-10 space-y-5">
-            <div className="mx-auto h-1 w-12 rounded-full bg-white/15" />
-            <div className="text-center space-y-1">
-              <h2 className="text-xl font-semibold">Your circle is ready</h2>
-              <p className="text-sm text-[var(--muted)]">
+          <div style={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 50,
+            margin: '0 auto',
+            maxWidth: '32rem',
+            borderRadius: 'var(--radius-2xl) var(--radius-2xl) 0 0',
+            borderTop: '1px solid var(--glass-border)',
+            background: 'var(--ink-raised)',
+            padding: '1.5rem 1.5rem 2.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem',
+            boxShadow: '0 -12px 40px rgba(0,0,0,0.3)',
+          }}>
+            {/* Drag handle */}
+            <div style={{ width: '40px', height: '4px', borderRadius: '99px', background: 'var(--glass-border)', margin: '0 auto' }} />
+
+            <div style={{ textAlign: 'center' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.35rem' }}>
+                Your circle is ready ✓
+              </h2>
+              <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.65 }}>
                 Others can find and join your circle from the onboarding screen.
               </p>
             </div>
-            {createdInviteCode && (
-              <div className="rounded-xl border border-[var(--gold-border)] bg-[var(--gold-dim)] px-4 py-4 text-center">
-                <p className="text-xs text-[var(--muted)] mb-1">Invite link (optional)</p>
-                <p className="font-mono text-xs text-[var(--gold)] break-all">{createdInviteCode}</p>
-              </div>
-            )}
+
+            <div style={{
+              padding: '1rem',
+              background: 'var(--gold-dim)',
+              border: '1px solid var(--gold-border)',
+              borderRadius: 'var(--radius-md)',
+              textAlign: 'center',
+            }}>
+              <p style={{ fontSize: '0.7rem', color: 'var(--muted)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                Invite code
+              </p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--gold)', fontWeight: 600, wordBreak: 'break-all', letterSpacing: '0.05em' }}>
+                {createdInviteCode}
+              </p>
+            </div>
+
             <button
               type="button"
-              className="w-full rounded-xl bg-[var(--gold)] py-2.5 text-sm font-semibold text-[var(--ink)]"
+              className="button-primary"
+              style={{ width: '100%', padding: '0.8rem' }}
               onClick={() => {
                 if (createdRoomId) session.setRoomId(createdRoomId)
                 router.push("/circle")
               }}
             >
-              Continue to your circle
+              Continue to your circle →
             </button>
           </div>
         </>

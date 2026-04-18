@@ -1,36 +1,22 @@
 ﻿"use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { BottomNavigation } from "@/components/circle/BottomNavigation"
-import { SidebarNav } from "@/components/circle/SidebarNav"
+import { AppShell } from "@/components/circle/AppShell"
 import { ThemeToggle } from "@/components/theme/ThemeToggle"
 import { getClientAccessToken } from "@/lib/client-access"
 import {
-  createGoal,
-  getActivityDays,
-  getBookmarks,
-  getCollections,
-  getGoals,
-  getNotes,
-  getRoomPosts,
-  getStreaks,
-  getUserProfile,
-  getUserRooms,
+  createGoal, getActivityDays, getBookmarks, getCollections,
+  getGoals, getNotes, getRoomPosts, getStreaks, getUserProfile, getUserRooms,
 } from "@/lib/qf-api"
 import { session } from "@/lib/session"
 import type { Goal, UserProfile, UserStreak } from "@/types/circle"
 
 function getInitials(name: string) {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("")
+  return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")
 }
 
-function getLastTwentyDays() {
-  return Array.from({ length: 20 }, (_, index) => {
+function getLastThirtyDays() {
+  return Array.from({ length: 30 }, (_, index) => {
     const date = new Date()
     date.setDate(date.getDate() - (29 - index))
     return date.toISOString().slice(0, 10)
@@ -56,16 +42,12 @@ export default function ProfilePage() {
   const [goalTarget, setGoalTarget] = useState(7)
   const [goalLoading, setGoalLoading] = useState(false)
 
-  const heatmapDays = useMemo(() => getLastTwentyDays(), [])
+  const heatmapDays = useMemo(() => getLastThirtyDays(), [])
 
   useEffect(() => {
     const loadProfile = async () => {
       const token = await getClientAccessToken()
-      if (!token) {
-        setError("We couldn't verify your session.")
-        setLoading(false)
-        return
-      }
+      if (!token) { setError("We couldn't verify your session."); setLoading(false); return }
 
       const [profileData, streakData, activityData, goalsData, bookmarks, collections, notes, rooms] = await Promise.all([
         getUserProfile(token).catch(() => null),
@@ -81,9 +63,7 @@ export default function ProfilePage() {
       const currentMonthKey = new Date().toISOString().slice(0, 7)
       const roomPosts = await Promise.all((rooms ?? []).map((room) => getRoomPosts(token, room.id)))
       const userId = session.getUserId()
-
-      const reflectionCount = roomPosts
-        .flatMap((items) => items ?? [])
+      const reflectionCount = roomPosts.flatMap((items) => items ?? [])
         .filter((post) => post.user_id === userId && post.created_at.startsWith(currentMonthKey)).length
 
       setProfile(profileData)
@@ -96,167 +76,144 @@ export default function ProfilePage() {
       setMonthlyReflections(reflectionCount)
       setLoading(false)
     }
-
     void loadProfile()
   }, [])
 
   async function handleCreateGoal() {
     setGoalLoading(true)
     const token = await getClientAccessToken()
-    if (!token) {
-      setGoalLoading(false)
-      return
-    }
+    if (!token) { setGoalLoading(false); return }
     const goal = await createGoal(token, goalType, goalTarget)
     if (goal) setGoals((current) => [goal, ...current])
     setGoalLoading(false)
   }
 
-  return (
-    <div className="min-h-screen bg-[var(--ink)] pb-24 text-[var(--text)]">
-      <aside className="hidden lg:flex fixed left-0 top-0 z-30 h-full w-60 flex-col border-r border-white/6 bg-[rgba(15,14,12,0.8)] p-4 backdrop-blur-xl">
-        <div className="mb-8 px-2">
-          <p className="text-sm font-bold tracking-[0.2em] text-[var(--gold)] uppercase">Al-Habl</p>
-          <p className="mt-0.5 text-xs text-[var(--muted)]">Profile</p>
-        </div>
-        <SidebarNav />
-      </aside>
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '0.65rem 1rem',
+    background: 'var(--glass-strong)', border: '1px solid var(--glass-border)',
+    borderRadius: 'var(--radius-md)', color: 'var(--text)',
+    fontFamily: 'var(--font-sans)', fontSize: '0.9rem', lineHeight: 1.5,
+    outline: 'none', transition: 'border-color 0.15s ease',
+  }
 
-      <main className="mx-auto w-full max-w-5xl px-4 pt-8 space-y-6 lg:pl-60">
+  return (
+    <AppShell pageLabel="Profile">
+      <main style={{ margin: '0 auto', width: '100%', maxWidth: '64rem', padding: '2rem 1rem 6rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
         {/* Header */}
-        <section className="glass-card p-6 sm:p-8 space-y-6">
-          <div className="flex items-center justify-between">
-            <p className="muted-kicker">Profile</p>
+        <section className="glass-card" style={{ padding: '1.75rem 2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+            <span className="muted-kicker" style={{ display: 'flex' }}>Profile</span>
             <ThemeToggle />
           </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-5">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--gold-dim)] text-lg font-medium text-[var(--gold)]">
-              {getInitials(profile?.username ?? "User")}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginBottom: '1.75rem' }}>
+            <div style={{ width: '60px', height: '60px', flexShrink: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 700, background: 'var(--gold-dim2)', border: '1px solid var(--gold-border)', color: 'var(--gold)' }}>
+              {getInitials(profile?.username ?? "U")}
             </div>
-
-            <div className="min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-semibold truncate">
-                {profile?.username ?? "Quran Circle Member"}
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {loading ? <div className="skeleton" style={{ height: '1.75rem', width: '180px', borderRadius: 'var(--radius-sm)' }} /> : (profile?.username ?? "Quran Circle Member")}
               </h1>
-              <p className="text-sm text-[var(--muted)] mt-1">
-                {profile?.quran_account_tag ?? "Quran.com account"}
-              </p>
+              <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginTop: '0.25rem' }}>{profile?.quran_account_tag ?? "Quran.com account"}</p>
             </div>
           </div>
-
-          {/* Streaks */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-2xl border border-[var(--gold-border)] bg-[var(--gold-dim)] p-5">
-              <p className="muted-kicker">Current Streak</p>
-              <p className="mt-3 text-4xl font-semibold text-[var(--gold)]">
-                {loading ? "--" : streakFailed ? "—" : streak?.current_streak ?? "—"}
-              </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div style={{ padding: '1.25rem', background: 'var(--gold-dim)', border: '1px solid var(--gold-border)', borderRadius: 'var(--radius-md)' }}>
+              <span className="muted-kicker" style={{ display: 'flex', marginBottom: '0.75rem' }}>Current Streak</span>
+              <p style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.04em', color: 'var(--gold)', lineHeight: 1 }}>{loading ? "–" : streakFailed ? "—" : streak?.current_streak ?? "0"}</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.4rem' }}>days in a row</p>
             </div>
-
-            <div className="glass-card p-5">
-              <p className="muted-kicker">Max Streak</p>
-              <p className="mt-3 text-4xl font-semibold">
-                {loading ? "--" : streakFailed ? "—" : streak?.max_streak ?? "—"}
-              </p>
+            <div className="glass-card" style={{ padding: '1.25rem' }}>
+              <span className="muted-kicker" style={{ display: 'flex', marginBottom: '0.75rem' }}>Best Streak</span>
+              <p style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1 }}>{loading ? "–" : streakFailed ? "—" : streak?.max_streak ?? "0"}</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.4rem' }}>personal best</p>
             </div>
           </div>
         </section>
 
         {/* Activity */}
-        <section className="glass-card p-6 space-y-4">
-          <div className="flex items-center justify-between">
+        <section className="glass-card" style={{ padding: '1.5rem 2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
             <div>
-              <p className="muted-kicker">Activity</p>
-              <p className="section-subcopy">Last 30 days</p>
+              <span className="muted-kicker" style={{ display: 'flex', marginBottom: '0.35rem' }}>Activity</span>
+              <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Last 30 days</p>
             </div>
-            {error && <p className="text-xs text-[#f0a7a0]">{error}</p>}
+            {error && <p style={{ fontSize: '0.75rem', color: '#f87171', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', padding: '0.3rem 0.6rem', borderRadius: 'var(--radius-sm)' }}>{error}</p>}
           </div>
-
-          <div className="grid grid-cols-10 gap-2">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: '6px' }}>
             {heatmapDays.map((day) => {
               const active = activityDays.includes(day)
               return (
-                <div
-                  key={day}
-                  className={`aspect-square rounded-md border transition ${
-                    active
-                      ? "bg-[var(--gold)] border-[var(--gold-border)]"
-                      : "bg-white/4 border-white/8"
-                  }`}
-                />
+                <div key={day} title={day} style={{ aspectRatio: '1', borderRadius: '5px', background: active ? 'var(--gold)' : 'var(--glass-strong)', border: `1px solid ${active ? 'var(--gold-border)' : 'var(--glass-border)'}`, boxShadow: active ? '0 0 6px rgba(201,168,76,0.3)' : 'none', transition: 'all 0.15s ease' }} />
               )
             })}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.875rem', justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Less</span>
+            {[0.15, 0.35, 0.6, 0.8, 1].map((o, i) => (
+              <div key={i} style={{ width: '10px', height: '10px', borderRadius: '3px', background: i === 4 ? 'var(--gold)' : `color-mix(in srgb, var(--gold) ${Math.round(o * 100)}%, var(--glass-strong))`, border: '1px solid var(--glass-border)' }} />
+            ))}
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>More</span>
           </div>
         </section>
 
         {/* Goals */}
-        <section className="glass-card p-6 space-y-5">
-          <div>
-            <p className="muted-kicker">Goals</p>
-            <p className="section-subcopy">Track your rhythm</p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-3">
-            {goals.map((goal) => {
-              const progress = goal.target > 0 ? Math.min((goal.progress / goal.target) * 100, 100) : 0
-              return (
-                <div key={goal.id} className="rounded-2xl border border-white/8 bg-white/4 p-4">
-                  <div className="flex justify-between text-sm">
-                    <p>{goal.type}</p>
-                    <p className="text-[var(--muted)]">{goal.progress}/{goal.target}</p>
+        <section className="glass-card" style={{ padding: '1.5rem 2rem' }}>
+          <span className="muted-kicker" style={{ display: 'flex', marginBottom: '0.35rem' }}>Goals</span>
+          <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Track your rhythm</p>
+          {goals.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              {goals.map((goal) => {
+                const progress = goal.target > 0 ? Math.min((goal.progress / goal.target) * 100, 100) : 0
+                return (
+                  <div key={goal.id} style={{ padding: '1rem', background: 'var(--glass)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem', gap: '0.5rem' }}>
+                      <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text)', lineHeight: 1.4 }}>{goal.type}</p>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{goal.progress}/{goal.target}</span>
+                    </div>
+                    <div style={{ height: '5px', borderRadius: '99px', background: 'var(--glass-strong)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${progress}%`, background: 'var(--gold)', borderRadius: '99px', transition: 'width 0.4s var(--ease-out-expo)', opacity: progress >= 100 ? 1 : 0.75 }} />
+                    </div>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '0.4rem', textAlign: 'right' }}>{Math.round(progress)}%</p>
                   </div>
-                  <div className="mt-3 h-2 rounded-full bg-white/8">
-                    <div className="h-full bg-[var(--gold)] rounded-full" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          <div className="rounded-2xl border border-white/8 bg-white/4 p-4 space-y-3">
-            <p className="text-sm font-medium">Create new goal</p>
-            <input className="input-field" value={goalType} onChange={(e) => setGoalType(e.target.value)} />
-            <input className="input-field" type="number" min={1} value={goalTarget} onChange={(e) => setGoalTarget(Number(e.target.value))} />
-            <button
-              className="button-primary w-full"
-              onClick={() => void handleCreateGoal()}
-              disabled={goalLoading}
-            >
-              {goalLoading ? "Saving..." : "Create Goal"}
+                )
+              })}
+            </div>
+          )}
+          <div style={{ padding: '1.25rem', background: 'var(--glass)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <p style={{ fontSize: '0.875rem', fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>Create new goal</p>
+            <input style={inputStyle} value={goalType} onChange={(e) => setGoalType(e.target.value)} placeholder="e.g. Read 1 verse daily" onFocus={e => (e.target as HTMLInputElement).style.borderColor = 'var(--gold-border)'} onBlur={e => (e.target as HTMLInputElement).style.borderColor = 'var(--glass-border)'} />
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input style={{ ...inputStyle, width: 'auto', minWidth: '80px', flex: '0 0 auto' }} type="number" min={1} value={goalTarget} onChange={(e) => setGoalTarget(Number(e.target.value))} onFocus={e => (e.target as HTMLInputElement).style.borderColor = 'var(--gold-border)'} onBlur={e => (e.target as HTMLInputElement).style.borderColor = 'var(--glass-border)'} />
+              <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>days target</p>
+            </div>
+            <button className="button-primary" onClick={() => void handleCreateGoal()} disabled={goalLoading} style={{ width: '100%' }}>
+              {goalLoading ? "Saving…" : "Create Goal"}
             </button>
           </div>
         </section>
 
         {/* Stats */}
-        <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <a href="/circle/archive#bookmarks" className="glass-card p-4 space-y-1">
-            <p className="muted-kicker">Bookmarks</p>
-            <p className="text-2xl font-semibold">{bookmarksFailed ? "—" : bookmarksCount}</p>
-          </a>
-
-          <a href="/circle/archive#collections" className="glass-card p-4 space-y-1">
-            <p className="muted-kicker">Collections</p>
-            <p className="text-2xl font-semibold">{collectionsFailed ? "—" : collectionsCount}</p>
-          </a>
-
-          <a href="/circle/archive#notes" className="glass-card p-4 space-y-1">
-            <p className="muted-kicker">Notes</p>
-            <p className="text-2xl font-semibold">{notesFailed ? "—" : notesCount}</p>
-          </a>
-
-          <div className="glass-card p-4 space-y-1">
-            <p className="muted-kicker">This Month</p>
-            <p className="text-2xl font-semibold">{monthlyReflections}</p>
-          </div>
+        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }} className="sm:!grid-cols-4">
+          {[
+            { label: 'Bookmarks',   value: bookmarksFailed   ? '—' : bookmarksCount,   href: '/circle/archive#bookmarks'   },
+            { label: 'Collections', value: collectionsFailed ? '—' : collectionsCount, href: '/circle/archive#collections' },
+            { label: 'Notes',       value: notesFailed       ? '—' : notesCount,       href: '/circle/archive#notes'       },
+            { label: 'This Month',  value: monthlyReflections,                          href: undefined                     },
+          ].map(({ label, value, href }) => {
+            const El = href ? 'a' : 'div'
+            return (
+              <El key={label} href={href} className="glass-card" style={{ display: 'block', padding: '1.25rem', textDecoration: 'none', cursor: href ? 'pointer' : 'default' }}>
+                <span className="muted-kicker" style={{ display: 'flex', marginBottom: '0.65rem' }}>{label}</span>
+                <p style={{ fontSize: '1.75rem', fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1 }}>
+                  {loading ? <span className="skeleton" style={{ display: 'inline-block', width: '2rem', height: '1.75rem', borderRadius: 'var(--radius-sm)' }} /> : value}
+                </p>
+              </El>
+            )
+          })}
         </section>
 
       </main>
-
-      <div className="lg:hidden">
-        <BottomNavigation />
-      </div>
-    </div>
+    </AppShell>
   )
 }

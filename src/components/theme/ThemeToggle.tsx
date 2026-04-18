@@ -7,34 +7,54 @@ export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
 
-  if (!mounted) return null; // ⬅️ prevents hydration mismatch
+  const isDark = theme === 'dark';
 
   return (
     <button
       onClick={toggleTheme}
-      aria-label={`Switch to ${theme === 'dark' ? 'day' : 'night'} mode`}
-      className="glass-chip inline-flex h-11 w-11 items-center justify-center border border-[var(--glass-border)] bg-[var(--glass-strong)] text-[var(--text)] shadow-[0_16px_40px_var(--shadow-deep)] transition-transform duration-300 hover:-translate-y-0.5 hover:border-[var(--gold-border)] hover:text-[var(--gold)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ink)]"
+      aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
       type="button"
+      className="glass-chip relative inline-flex h-9 w-9 items-center justify-center rounded-xl"
+      style={{
+        background: 'var(--glass-strong)',
+        border: '1px solid var(--glass-border)',
+        color: 'var(--muted)',
+        cursor: 'pointer',
+        transition: 'color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.2s var(--ease-bounce)',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--gold-border)';
+        (e.currentTarget as HTMLButtonElement).style.color = 'var(--gold)';
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--glass-border)';
+        (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)';
+      }}
     >
-      {theme === 'dark' ? (
-        // moon
-        <svg className="h-5 w-5 text-[var(--gold)]" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-        </svg>
-      ) : (
-        // sun
-        <svg className="h-5 w-5 text-[var(--gold)]" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1Zm0 12a4 4 0 100-8 4 4 0 000 8Z..."
-            clipRule="evenodd"
-          />
-        </svg>
-      )}
+      <span
+        style={{
+          display: 'inline-flex',
+          transition: 'opacity 0.2s ease, transform 0.3s var(--ease-out-expo)',
+          opacity: 1,
+          transform: 'rotate(0deg)',
+        }}
+      >
+        {isDark ? (
+          /* Moon icon */
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        ) : (
+          /* Sun icon */
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="5" />
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" strokeWidth="2" stroke="currentColor" fill="none" strokeLinecap="round"/>
+          </svg>
+        )}
+      </span>
     </button>
   );
 }

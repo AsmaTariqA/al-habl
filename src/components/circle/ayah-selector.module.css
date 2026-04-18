@@ -1,0 +1,344 @@
+/* ── Trigger button ── */
+.triggerBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+  font: inherit;
+}
+.triggerBtn:hover {
+  border-color: var(--gold-border);
+  color: var(--gold);
+  background: var(--gold-dim);
+}
+
+/* ── Sheet backdrop ── */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+/* ── Sheet panel ── */
+.panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  margin: 0 auto;
+  max-width: 32rem;
+  border-radius: 28px 28px 0 0;
+  border-top: 1px solid var(--glass-border);
+  background: var(--surface);
+  padding: 1.5rem 1.5rem 2.5rem;
+  box-shadow: 0 -8px 40px var(--shadow-deep);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .panel {
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+    border-radius: 20px;
+    border: 1px solid var(--glass-border);
+  }
+}
+
+.dragHandle {
+  width: 3rem;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--glass-border);
+  margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+  .dragHandle { display: none; }
+}
+
+.kicker {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+
+.sheetTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+/* ── Inner content spacing ── */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ── Current ayah banner ── */
+.currentBanner {
+  border-radius: 12px;
+  border: 1px solid var(--gold-border);
+  background: var(--gold-dim);
+  padding: 0.75rem 1rem;
+}
+.currentLabel {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0;
+}
+.currentValue {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--gold);
+  margin: 0;
+}
+
+/* ── Auto-rotate button ── */
+.autoBtn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+  font: inherit;
+}
+.autoBtn:hover {
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+}
+.autoBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.autoBtnLabel {
+  font-weight: 500;
+  margin: 0;
+}
+.autoBtnSub {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0;
+}
+.autoBtnBadge {
+  font-size: 0.75rem;
+  color: var(--gold);
+}
+
+/* ── Search ── */
+.searchWrapper {
+  position: relative;
+}
+.searchInput {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface2);
+  color: var(--text);
+  padding: 0.625rem 2.25rem 0.625rem 1rem;
+  font-size: 0.875rem;
+  outline: none;
+  font: inherit;
+  transition: border-color 150ms ease;
+}
+.searchInput::placeholder {
+  color: var(--muted);
+}
+.searchInput:focus {
+  border-color: var(--gold-border);
+}
+.searchIcon {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* ── Surah list ── */
+.surahList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+.surahBtn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 12px;
+  padding: 0.625rem 1rem;
+  text-align: left;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  font: inherit;
+  border: 1px solid transparent;
+  background: var(--glass);
+  color: var(--text);
+}
+.surahBtn:hover {
+  background: var(--glass-strong);
+  border-color: var(--glass-border);
+}
+.surahBtnActive {
+  border-color: var(--gold-border) !important;
+  background: var(--gold-dim) !important;
+  color: var(--gold) !important;
+}
+.surahBtnAyahCount {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ── Skeleton ── */
+.skeletonList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 16rem;
+  overflow: hidden;
+}
+.skeletonRow {
+  height: 2.5rem;
+  border-radius: 12px;
+  background: var(--glass-strong);
+  position: relative;
+  overflow: hidden;
+}
+.skeletonRow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+/* ── Verse picker ── */
+.versePicker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.versePickerLabel {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0;
+}
+.verseGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+.verseBtn {
+  height: 2.25rem;
+  width: 3rem;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+  font: inherit;
+}
+.verseBtn:hover {
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+}
+.verseBtnActive {
+  border-color: var(--gold-border) !important;
+  background: var(--gold-dim) !important;
+  color: var(--gold) !important;
+}
+.verseInputWrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.verseInputLabel {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0;
+}
+.verseInput {
+  width: 7rem;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface2);
+  color: var(--text);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  font: inherit;
+  transition: border-color 150ms ease;
+}
+.verseInput::placeholder {
+  color: var(--muted);
+}
+.verseInput:focus {
+  border-color: var(--gold-border);
+}
+
+/* ── Save button ── */
+.saveBtn {
+  width: 100%;
+  border-radius: 12px;
+  border: none;
+  background: var(--gold);
+  color: var(--ink);
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 150ms ease, transform 150ms ease;
+  font: inherit;
+}
+.saveBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  opacity: 0.92;
+}
+.saveBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}

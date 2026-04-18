@@ -1,9 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-function CallbackContent() {
+export default function CallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +26,7 @@ function CallbackContent() {
           return;
         }
 
+        // Verify state matches (security check)
         const storedState = typeof window !== 'undefined'
           ? sessionStorage.getItem('oauth_state')
           : null;
@@ -44,6 +45,7 @@ function CallbackContent() {
           return;
         }
 
+        // Exchange code for tokens via our API with the PKCE verifier
         const response = await fetch('/api/auth/callback', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -61,10 +63,6 @@ function CallbackContent() {
           setError(data.error || 'Authentication failed');
           return;
         }
-
-        // After successful login
-const username = data.name || data.userId
-localStorage.setItem("qf_username", username)
 
         sessionStorage.removeItem('pkce_code_verifier');
         sessionStorage.removeItem('oauth_state');
@@ -108,23 +106,4 @@ localStorage.setItem("qf_username", username)
   }
 
   return null;
-}
-
-function LoadingState() {
-  return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center space-y-4">
-        <h1 className="text-2xl font-bold text-[#C9A84C]">Signing you in...</h1>
-        <p className="text-[#8A8278]">Please wait</p>
-      </div>
-    </div>
-  );
-}
-
-export default function CallbackPage() {
-  return (
-    <Suspense fallback={<LoadingState />}>
-      <CallbackContent />
-    </Suspense>
-  );
 }
