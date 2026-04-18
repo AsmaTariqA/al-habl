@@ -69,6 +69,7 @@ function CallbackContent() {
         localStorage.setItem('qf_token', data.access_token);
         localStorage.setItem('qf_user_id', data.userId);
 
+
         router.push('/circle');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
