@@ -24,7 +24,8 @@ function getInitialTheme(): Theme {
 
 function applyTheme(theme: Theme) {
   const html = document.documentElement;
-  html.classList.toggle('dark', theme === 'dark');
+  html.classList.remove('theme-dark', 'theme-light');
+  html.classList.add(`theme-${theme}`);
   html.style.colorScheme = theme;
   document.body.style.colorScheme = theme;
 }

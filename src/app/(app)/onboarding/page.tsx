@@ -1,61 +1,58 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { session } from "@/lib/session"
+
+interface CircleRow {
+  id: string
+  name: string
+  description?: string
+  member_count: number
+  created_at: string
+}
 
 export default function OnboardingPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [circleName, setCircleName] = useState("")
   const [description, setDescription] = useState("")
-  const [inviteCode, setInviteCode] = useState("")
   const [createLoading, setCreateLoading] = useState(false)
-  const [joinLoading, setJoinLoading] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [joinError, setJoinError] = useState<string | null>(null)
   const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null)
   const [createdRoomId, setCreatedRoomId] = useState<string | null>(null)
-  const [grantedScope] = useState<string | null>(() =>
-    typeof window === "undefined" ? null : sessionStorage.getItem("qf_last_granted_scope"),
+  const [circles, setCircles] = useState<CircleRow[]>([])
+  const [circlesLoading, setCirclesLoading] = useState(true)
+  const [joiningId, setJoiningId] = useState<string | null>(null)
+  const [joinError, setJoinError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+
+  // Check if user already has a room
+ useEffect(() => {
+  fetch("/api/circle")
+    .then(r => r.json())
+    .then((data: { room?: { id: string } | null; circles?: CircleRow[] }) => {
+      // ✅ Always show available circles (including joined ones)
+      setCircles(data.circles ?? [])
+    })
+    .catch(() => {
+      // optional: you can set an error state here later
+    })
+    .finally(() => setCirclesLoading(false))
+}, [])
+
+  const filteredCircles = circles.filter(c =>
+    !search || c.name.toLowerCase().includes(search.toLowerCase())
   )
-  const scopeLimited = searchParams.get("scope_limited") === "1"
-
-  useEffect(() => {
-    const existingRoomId = session.getRoomId()
-    if (existingRoomId) {
-      router.replace("/circle")
-      return
-    }
-
-    const restoreRoom = async () => {
-      const response = await fetch("/api/circle")
-      const data = (await response.json()) as { room?: { id: string } | null }
-      if (data.room?.id) {
-        session.setRoomId(data.room.id)
-        router.replace("/circle")
-      }
-    }
-
-    void restoreRoom()
-  }, [router])
 
   async function handleCreateCircle() {
     setCreateError(null)
-
-    if (!circleName.trim()) {
-      setCreateError("Please give your circle a name.")
-      return
-    }
-
+    if (!circleName.trim()) { setCreateError("Please give your circle a name."); return }
     setCreateLoading(true)
+
     const response = await fetch("/api/circle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: circleName.trim(),
-        description: description.trim(),
-      }),
+      body: JSON.stringify({ name: circleName.trim(), description: description.trim() }),
     })
 
     const data = (await response.json()) as {
@@ -72,200 +69,183 @@ export default function OnboardingPage() {
 
     session.setRoomId(data.room.id)
     setCreatedRoomId(data.room.id)
-    setCreatedInviteCode(data.inviteCode ?? "Invite unavailable")
+    setCreatedInviteCode(data.inviteCode ?? null)
     setCreateLoading(false)
   }
 
-  async function handleJoinCircle() {
+  async function handleJoinCircle(roomId: string) {
     setJoinError(null)
-    const normalizedCode = inviteCode.trim().toUpperCase()
+    setJoiningId(roomId)
 
-    if (!normalizedCode) {
-      setJoinError("Please enter the invite code.")
-      return
-    }
-
-    setJoinLoading(true)
     const response = await fetch("/api/circle/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inviteCode: normalizedCode }),
+      body: JSON.stringify({ roomId }),
     })
 
-    const data = (await response.json()) as {
-      error?: string
-      room?: { id: string } | null
-    }
+    const data = (await response.json()) as { error?: string; roomId?: string }
 
-    if (!response.ok || !data.room?.id) {
-      setJoinError(data.error ?? "Circle not found.")
-      setJoinLoading(false)
+    if (!response.ok) {
+      setJoinError(data.error ?? "Could not join circle.")
+      setJoiningId(null)
       return
     }
 
-    session.setRoomId(data.room.id)
+    session.setRoomId(roomId)
     router.push("/circle")
   }
 
-  async function copyInviteCode() {
-    if (!createdInviteCode) return
-    await navigator.clipboard.writeText(createdInviteCode)
-  }
-
   return (
-    <div className="min-h-screen bg-[var(--ink)] px-4 py-6 text-[var(--text)] sm:py-10">
-      <div className="relative mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-[1040px] items-center justify-center">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(201,168,76,0.16),transparent_36%)]" />
-        <div className="pointer-events-none absolute inset-x-6 top-10 h-40 rounded-full bg-[radial-gradient(circle,rgba(201,168,76,0.12),transparent_70%)] blur-3xl" />
+    <div className="min-h-screen bg-[var(--ink)] px-4 py-8 text-[var(--text)]">
+      <div className="mx-auto max-w-[960px] space-y-8">
 
-        <div className="relative z-10 w-full space-y-8">
-          <div className="space-y-4 text-center">
-            <p className="muted-kicker">Circle Onboarding</p>
-            <h1 className="page-heading mx-auto max-w-[12ch]">
-              Start or join your daily study circle
-            </h1>
-            <p className="section-subcopy mx-auto max-w-[40rem]">
-              Every day, the same ayah. The same five lenses. The same few companions
-              returning with you.
-            </p>
-          </div>
+        <div className="text-center space-y-3 pt-4">
+          <p className="text-xs font-semibold tracking-widest uppercase text-[var(--muted)]">
+            Circle Onboarding
+          </p>
+          <h1 className="text-3xl font-semibold">Start or join your daily study circle</h1>
+          <p className="text-[var(--muted)] max-w-md mx-auto text-sm">
+            Every day, the same ayah. The same five lenses. The same companions returning with you.
+          </p>
+        </div>
 
-          {scopeLimited ? (
-            <section className="status-banner space-y-3">
-              <p className="muted-kicker">QF Scope Debug</p>
-              <p className="text-sm text-[#f0a7a0]">
-                Login worked, but Quran Foundation still denied room access for this token.
+        <div className="grid gap-4 lg:grid-cols-2">
+
+          {/* Create a circle */}
+          <section className="rounded-2xl border border-white/8 bg-white/3 p-6 space-y-4">
+            <div>
+              <p className="text-xs font-semibold tracking-widest uppercase text-[var(--muted)] mb-1">
+                Option A
               </p>
-              <div className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                  Granted scopes
-                </p>
-                <p className="mt-2 break-words font-mono text-sm text-[var(--gold)]">
-                  {grantedScope ?? "No scope string was returned by the token exchange."}
-                </p>
-              </div>
-            </section>
-          ) : null}
+              <h2 className="text-2xl font-semibold">Create a Circle</h2>
+              <p className="text-sm text-[var(--muted)] mt-1">
+                Start your own circle. Others on Al-Habl can join it.
+              </p>
+            </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="glass-card space-y-6 p-5 sm:p-6">
-              <div className="space-y-2">
-                <p className="muted-kicker">Option A</p>
-                <h2 className="text-2xl font-semibold sm:text-3xl">Create a Circle</h2>
-                <p className="section-subcopy">
-                  You&apos;ll get an invite code to share with up to 4 people.
-                </p>
-              </div>
+            <input
+              className="w-full rounded-xl border border-white/10 bg-white/4 px-4 py-2.5 text-sm placeholder:text-[var(--muted)] focus:outline-none focus:border-white/20"
+              placeholder="Circle name e.g. Morning Brothers"
+              value={circleName}
+              onChange={e => setCircleName(e.target.value)}
+            />
 
-              <label className="block space-y-2">
-                <span className="text-sm text-[var(--muted)]">Circle name</span>
-                <input
-                  className="input-field"
-                  placeholder="Morning Brothers"
-                  value={circleName}
-                  onChange={(event) => setCircleName(event.target.value)}
-                />
-              </label>
+            <textarea
+              className="w-full rounded-xl border border-white/10 bg-white/4 px-4 py-2.5 text-sm placeholder:text-[var(--muted)] focus:outline-none focus:border-white/20 min-h-[80px] resize-none"
+              placeholder="Description (optional)"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+            />
 
-              <label className="block space-y-2">
-                <span className="text-sm text-[var(--muted)]">Description</span>
-                <textarea
-                  className="textarea-field min-h-[110px]"
-                  placeholder="Optional: Who is this circle for, and what rhythm do you want to keep?"
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                />
-              </label>
+            {createError && (
+              <p className="text-sm text-red-300/80 rounded-xl border border-red-300/20 bg-red-300/10 px-3 py-2">
+                {createError}
+              </p>
+            )}
 
-              {createError ? (
-                <p className="rounded-[18px] border border-[#f0a7a0]/20 bg-[#f0a7a0]/10 px-4 py-3 text-sm text-[#f0a7a0]">
-                  {createError}
-                </p>
-              ) : null}
+            <button
+              type="button"
+              onClick={() => void handleCreateCircle()}
+              disabled={createLoading}
+              className="w-full rounded-xl bg-[var(--gold)] py-2.5 text-sm font-semibold text-[var(--ink)] hover:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              {createLoading ? "Creating…" : "Create Circle"}
+            </button>
+          </section>
 
-              <button
-                type="button"
-                className="button-primary w-full"
-                onClick={handleCreateCircle}
-                disabled={createLoading}
-              >
-                {createLoading ? "Creating..." : "Create Circle"}
-              </button>
-            </section>
+          {/* Browse and join */}
+          <section className="rounded-2xl border border-white/8 bg-white/3 p-6 space-y-4">
+            <div>
+              <p className="text-xs font-semibold tracking-widest uppercase text-[var(--muted)] mb-1">
+                Option B
+              </p>
+              <h2 className="text-2xl font-semibold">Join a Circle</h2>
+              <p className="text-sm text-[var(--muted)] mt-1">
+                Browse circles created by Al-Habl users.
+              </p>
+            </div>
 
-            <section className="glass-card space-y-6 p-5 sm:p-6">
-              <div className="space-y-2">
-                <p className="muted-kicker">Option B</p>
-                <h2 className="text-2xl font-semibold sm:text-3xl">Join a Circle</h2>
-                <p className="section-subcopy">
-                  Enter the 6-character invite code you were given.
-                </p>
-              </div>
+            <input
+              className="w-full rounded-xl border border-white/10 bg-white/4 px-4 py-2.5 text-sm placeholder:text-[var(--muted)] focus:outline-none focus:border-white/20"
+              placeholder="Search by name…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
 
-              <label className="block space-y-2">
-                <span className="text-sm text-[var(--muted)]">Invite code</span>
-                <input
-                  className="input-field font-mono uppercase tracking-[0.24em]"
-                  placeholder="AH-103"
-                  maxLength={6}
-                  value={inviteCode}
-                  onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
-                />
-              </label>
+            {joinError && (
+              <p className="text-sm text-red-300/80 rounded-xl border border-red-300/20 bg-red-300/10 px-3 py-2">
+                {joinError}
+              </p>
+            )}
 
-              {joinError ? (
-                <p className="rounded-[18px] border border-[#f0a7a0]/20 bg-[#f0a7a0]/10 px-4 py-3 text-sm text-[#f0a7a0]">
-                  {joinError}
-                </p>
-              ) : null}
-
-              <button
-                type="button"
-                className="button-secondary w-full border-[var(--gold-border)] text-[var(--text)]"
-                onClick={handleJoinCircle}
-                disabled={joinLoading}
-              >
-                {joinLoading ? "Joining..." : "Join Circle"}
-              </button>
-            </section>
-          </div>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {circlesLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-14 rounded-xl bg-white/4 animate-pulse" />
+                ))
+              ) : filteredCircles.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-[var(--muted)]">
+                    {circles.length === 0
+                      ? "No circles yet. Be the first to create one."
+                      : "No circles match your search."}
+                  </p>
+                </div>
+              ) : (
+                filteredCircles.map(circle => (
+                  <div
+                    key={circle.id}
+                    className="flex items-center justify-between rounded-xl border border-white/8 bg-white/3 px-4 py-3"
+                  >
+                    <div className="min-w-0 mr-3">
+                      <p className="text-sm font-medium truncate">{circle.name}</p>
+                      <p className="text-xs text-[var(--muted)]">
+                        {circle.member_count} {circle.member_count === 1 ? "member" : "members"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleJoinCircle(circle.id)}
+                      disabled={joiningId === circle.id}
+                      className="flex-shrink-0 rounded-xl border border-[var(--gold-border)] bg-[var(--gold-dim)] px-3 py-1.5 text-xs text-[var(--gold)] hover:bg-[var(--gold)] hover:text-[var(--ink)] transition-all disabled:opacity-40"
+                    >
+                      {joiningId === circle.id ? "Joining…" : "Join"}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
         </div>
       </div>
 
-      {createdInviteCode ? (
+      {/* Created circle sheet */}
+      {createdInviteCode && (
         <>
           <button
             type="button"
-            className="sheet-backdrop"
-            aria-label="Close invite modal"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
             onClick={() => setCreatedInviteCode(null)}
           />
-          <div className="sheet-panel space-y-5">
-            <div className="mx-auto h-1.5 w-16 rounded-full bg-white/12" />
-            <div className="space-y-2 text-center">
-              <p className="muted-kicker">Invite Code</p>
-              <h2 className="text-2xl font-semibold">Your circle is ready</h2>
+          <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg rounded-t-[28px] border-t border-white/8 bg-[#161411] p-6 pb-10 space-y-5">
+            <div className="mx-auto h-1 w-12 rounded-full bg-white/15" />
+            <div className="text-center space-y-1">
+              <h2 className="text-xl font-semibold">Your circle is ready</h2>
               <p className="text-sm text-[var(--muted)]">
-                Share this code with the people you want studying beside you.
+                Others can find and join your circle from the onboarding screen.
               </p>
             </div>
-
-            <div className="glass-card px-4 py-5 text-center">
-              <p className="font-mono text-3xl tracking-[0.35em] text-[var(--gold)]">
-                {createdInviteCode}
-              </p>
-            </div>
-
-            <button type="button" className="button-secondary w-full" onClick={copyInviteCode}>
-              Copy invite code
-            </button>
+            {createdInviteCode && (
+              <div className="rounded-xl border border-[var(--gold-border)] bg-[var(--gold-dim)] px-4 py-4 text-center">
+                <p className="text-xs text-[var(--muted)] mb-1">Invite link (optional)</p>
+                <p className="font-mono text-xs text-[var(--gold)] break-all">{createdInviteCode}</p>
+              </div>
+            )}
             <button
               type="button"
-              className="button-primary w-full"
+              className="w-full rounded-xl bg-[var(--gold)] py-2.5 text-sm font-semibold text-[var(--ink)]"
               onClick={() => {
-                if (createdRoomId) {
-                  session.setRoomId(createdRoomId)
-                }
+                if (createdRoomId) session.setRoomId(createdRoomId)
                 router.push("/circle")
               }}
             >
@@ -273,7 +253,7 @@ export default function OnboardingPage() {
             </button>
           </div>
         </>
-      ) : null}
+      )}
     </div>
   )
 }

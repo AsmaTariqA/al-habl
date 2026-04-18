@@ -1,6 +1,3 @@
-// src/app/api/content/chapters/route.ts
-// Returns all chapters (surahs) using a client_credentials content token
-
 import { NextResponse } from "next/server"
 
 let cachedToken: { token: string; expiresAt: number } | null = null
@@ -24,11 +21,25 @@ async function getContentToken(): Promise<string> {
 }
 
 export async function GET() {
-  const token = await getContentToken()
-  const res = await fetch(`${process.env.NEXT_PUBLIC_QF_API_URL}/content/api/v4/chapters`, {
-    headers: { "x-auth-token": token, "x-client-id": process.env.NEXT_PUBLIC_QF_CLIENT_ID! },
-    next: { revalidate: 86400 },
-  })
-  const data = await res.json()
-  return NextResponse.json(data, { headers: { "Cache-Control": "public, s-maxage=86400" } })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+
+  try {
+    const token = await getContentToken()
+    const res = await fetch(`${process.env.NEXT_PUBLIC_QF_API_URL}/content/api/v4/chapters`, {
+      headers: { "x-auth-token": token, "x-client-id": process.env.NEXT_PUBLIC_QF_CLIENT_ID! },
+      signal: controller.signal,
+      next: { revalidate: 86400 },
+    })
+
+    if (!res.ok) return NextResponse.json({ chapters: [] }, { status: 200 })
+    const data = await res.json()
+    return NextResponse.json(data, { headers: { "Cache-Control": "public, s-maxage=86400" } })
+  } catch (err: unknown) {
+    const isAbort = err instanceof Error && (err.name === "AbortError" || (err as { code?: number }).code === 20)
+    console.error(`[content/chapters] ${isAbort ? "Timeout" : "Error"}:`, err)
+    return NextResponse.json({ chapters: [] }, { status: 200 })
+  } finally {
+    clearTimeout(timeout)
+  }
 }

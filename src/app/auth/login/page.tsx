@@ -1,16 +1,18 @@
 'use client';
 
+import { Suspense } from 'react';
 import { getAuthorizationUrl } from '@/lib/auth';
 import { useSearchParams } from 'next/navigation';
 
-export default function LoginPage() {
+function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
 
-const handleLogin = async () => {
-  const authUrl = await getAuthorizationUrl();
-  window.location.href = authUrl;
-};
+  const handleLogin = async () => {
+    const authUrl = await getAuthorizationUrl();
+    window.location.href = authUrl;
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen">
       <div className="w-full max-w-md p-8 space-y-8">
@@ -46,5 +48,22 @@ const handleLogin = async () => {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="w-full max-w-md p-8 space-y-8">
+          <div className="text-center space-y-2">
+            <h1 className="text-4xl font-bold text-[#C9A84C]">Al-Habl</h1>
+            <p className="text-[#8A8278]">The Rope of Allah</p>
+          </div>
+        </div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

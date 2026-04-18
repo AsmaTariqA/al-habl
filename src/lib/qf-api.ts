@@ -22,8 +22,8 @@ import { LENSES } from "@/lib/circle-constants"
 import { publicConfig } from "@/lib/config"
 
 const CONTENT_BASE = `${publicConfig.QF_API_URL}/content/api/v4`
-// CORRECT
-const USER_BASE = `${publicConfig.QF_API_URL}/quran-reflect/v1`
+const USER_BASE = `${publicConfig.QF_API_URL}/quran-reflect/v1`   // rooms, posts, comments, profile
+const AUTH_BASE = `${publicConfig.QF_API_URL}/auth/v1`             // bookmarks, notes, streaks, goals
 const CLIENT_ID = publicConfig.QF_CLIENT_ID
 
 export interface QfApiError {
@@ -42,22 +42,17 @@ interface QfFetchResult<T> {
 function getAuthHeaders(accessToken?: string) {
   return {
     "Content-Type": "application/json",
-    "Accept": "application/json", // ✅ REQUIRED FIX
+    "Accept": "application/json",
     "x-client-id": CLIENT_ID,
     ...(accessToken ? { "x-auth-token": accessToken } : {}),
   }
 }
+
 function normalizeApiError(status: number, statusText: string, rawBody: string): QfApiError {
   let parsed: Record<string, unknown> | null = null
-
   if (rawBody) {
-    try {
-      parsed = JSON.parse(rawBody) as Record<string, unknown>
-    } catch {
-      parsed = null
-    }
+    try { parsed = JSON.parse(rawBody) as Record<string, unknown> } catch { parsed = null }
   }
-
   return {
     status,
     statusText,
@@ -82,30 +77,16 @@ async function safeFetchResult<T>(
         ...(init?.headers ?? {}),
       },
     })
-
     if (!response.ok) {
       const errorText = await response.text()
       const error = normalizeApiError(response.status, response.statusText, errorText)
-      console.error(
-        `QF API request failed for ${path}: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""}`,
-      )
+      console.error(`QF API request failed for ${path}: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""}`)
       return { data: null, error }
     }
-
-    return {
-      data: (await response.json()) as T,
-      error: null,
-    }
+    return { data: (await response.json()) as T, error: null }
   } catch (error) {
     console.error(`QF API request failed for ${path}:`, error)
-    return {
-      data: null,
-      error: {
-        status: 0,
-        statusText: "Network Error",
-        message: "The request could not be completed.",
-      },
-    }
+    return { data: null, error: { status: 0, statusText: "Network Error", message: "The request could not be completed." } }
   }
 }
 
@@ -118,33 +99,6 @@ async function safeFetch<T>(
 ) {
   const result = await safeFetchResult<T>(path, init, accessToken, includeAuth, baseUrl)
   return result.data
-}
-
-async function safeFetchFromCandidates<T>(
-  paths: string[],
-  init?: RequestInit,
-  accessToken?: string,
-  includeAuth = true,
-  baseUrl = USER_BASE,
-): Promise<QfFetchResult<T>> {
-  let lastError: QfApiError | null = null
-
-  for (const path of paths) {
-    const result = await safeFetchResult<T>(path, init, accessToken, includeAuth, baseUrl)
-    if (result.data) {
-      return result
-    }
-
-    lastError = result.error
-    if (result.error && result.error.status !== 404) {
-      return result
-    }
-  }
-
-  return {
-    data: null,
-    error: lastError,
-  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -170,13 +124,9 @@ function readBoolean(value: unknown, fallback = false) {
 function pickPayload(source: unknown, keys: string[]) {
   const record = asRecord(source)
   if (!record) return null
-
   for (const key of keys) {
-    if (key in record) {
-      return record[key]
-    }
+    if (key in record) return record[key]
   }
-
   return source
 }
 
@@ -187,10 +137,7 @@ function normalizeTranslations(value: unknown): Translation[] {
     return {
       id: readNumber(record?.id),
       text: readString(record?.text),
-      resource_name:
-        readString(record?.resource_name) ||
-        readString(resource?.name) ||
-        readString(record?.name),
+      resource_name: readString(record?.resource_name) || readString(resource?.name) || readString(record?.name),
     }
   })
 }
@@ -203,12 +150,8 @@ function normalizeWords(value: unknown): Word[] {
     return {
       position: readNumber(record?.position, index + 1),
       text_uthmani: readString(record?.text_uthmani) || readString(record?.text),
-      translation: {
-        text: readString(translation?.text) || readString(record?.translation),
-      },
-      transliteration: {
-        text: readString(transliteration?.text) || readString(record?.transliteration),
-      },
+      translation: { text: readString(translation?.text) || readString(record?.translation) },
+      transliteration: { text: readString(transliteration?.text) || readString(record?.transliteration) },
     }
   })
 }
@@ -217,34 +160,51 @@ function normalizeVerse(source: unknown): Verse | null {
   const record = asRecord(pickPayload(source, ["verse", "data"]))
   if (!record) return null
 
+  const rawTranslations = asArray(record.translations)
+  const rawWords = asArray(record.words)
+
+  // QF quirk: when words=true, translations come embedded in each word,
+  // not as a top-level verse.translations array. Build a verse-level
+  // translation from word translations when translations is empty.
+  let translations: Translation[] = normalizeTranslations(rawTranslations)
+  if (translations.length === 0 && rawWords.length > 0) {
+    const wordTexts = rawWords.map((w) => {
+      const r = asRecord(w)
+      return asRecord(r?.translation)?.text ?? ""
+    }).filter(Boolean)
+    translations = [{
+      id: 131,
+      text: wordTexts.join(" "),
+      resource_name: "Word-by-word (QF)",
+    }]
+  }
+
   return {
     verse_key: readString(record.verse_key),
     verse_number: readNumber(record.verse_number),
     text_uthmani: readString(record.text_uthmani),
-    translations: normalizeTranslations(record.translations),
-    words: normalizeWords(record.words),
+    translations,
+    words: normalizeWords(rawWords),
     audio: readString(record.audio),
   }
 }
 
-function normalizeTafsir(source: unknown): Tafsir | null {
+function normalizeTafsir(source: unknown, verseKey?: string): Tafsir | null {
   const record = asRecord(pickPayload(source, ["tafsir", "data"]))
   if (!record) return null
-
+  // verse_key is stored as a key in the verses dict, e.g. { "1:1": {...} }
+  const verses = asRecord(record.verses)
+  const verseEntry = verses ? asRecord(verses[verseKey ?? ""]) : null
   return {
-    verse_key: readString(record.verse_key),
+    verse_key: readString(verseEntry?.verse_key) || verseKey || "",
     text: readString(record.text),
-    resource_name:
-      readString(record.resource_name) ||
-      readString(asRecord(record.resource_name)?.name) ||
-      "Ibn Kathir",
+    resource_name: readString(record.resource_name) || readString(asRecord(record.resource_name)?.name) || "Ibn Kathir",
   }
 }
 
 function normalizeChapter(source: unknown): Chapter | null {
   const record = asRecord(pickPayload(source, ["chapter", "data"]))
   if (!record) return null
-
   return {
     id: readNumber(record.id),
     name_simple: readString(record.name_simple) || readString(record.name),
@@ -255,24 +215,20 @@ function normalizeChapter(source: unknown): Chapter | null {
 }
 
 function normalizeAudio(source: unknown, verseKey: string): AudioRecitation | null {
-  const payload = pickPayload(source, ["audio_file", "audio", "recitation", "data"])
-  const record = asRecord(payload)
-  const files = asArray(asRecord(source)?.audio_files ?? asRecord(source)?.recitation_files)
-  const fileRecord = record ?? asRecord(files[0])
-
+  const files = asArray(asRecord(source)?.audio_files)
+  const fileRecord = asRecord(files[0])
   if (!fileRecord) return null
-
+  const rawUrl = readString(fileRecord.url)
   return {
     verse_key: verseKey,
-    url: readString(fileRecord.url),
-    duration: readNumber(fileRecord.duration, undefined as never),
+    url: rawUrl ? (rawUrl.startsWith("http") ? rawUrl : `https://verses.quran.foundation/${rawUrl}`) : "",
+    duration: undefined,
   }
 }
 
 function normalizeRoom(source: unknown): Room | null {
   const record = asRecord(pickPayload(source, ["room", "data"]))
   if (!record) return null
-
   return {
     id: readString(record.id) || String(readNumber(record.id)),
     name: readString(record.name),
@@ -280,156 +236,49 @@ function normalizeRoom(source: unknown): Room | null {
     member_count: readNumber(record.member_count) || readNumber(record.membersCount),
     created_by: readString(record.created_by),
     created_at: readString(record.created_at),
-    invite_code:
-      readString(record.invite_code) ||
-      readString(record.inviteCode) ||
-      readString(record.url) ||
-      readString(record.subdomain) ||
-      undefined,
+    invite_code: readString(record.invite_code) || readString(record.inviteCode) || readString(record.url) || readString(record.subdomain) || undefined,
   }
 }
 
 function normalizeRoomArray(source: unknown): Room[] {
   const payload = pickPayload(source, ["rooms", "data"])
-  return asArray(payload)
-    .map((entry) => normalizeRoom(entry))
-    .filter((entry): entry is Room => Boolean(entry))
+  return asArray(payload).map((entry) => normalizeRoom(entry)).filter((entry): entry is Room => Boolean(entry))
 }
 
-function normalizeMember(source: unknown): RoomMember | null {
-  const record = asRecord(source)
-  if (!record) return null
-
-  return {
-    user_id: readString(record.user_id) || String(readNumber(record.id)),
-    username: readString(record.username) || readString(record.name),
-    avatar:
-      readString(record.avatar) ||
-      readString(asRecord(record.avatarUrl)?.small) ||
-      readString(asRecord(record.avatarUrl)?.medium) ||
-      undefined,
-    joined_at: readString(record.joined_at),
-    has_reflected_today: readBoolean(record.has_reflected_today),
-  }
-}
 
 function normalizeMembers(source: unknown): RoomMember[] {
   const payload = pickPayload(source, ["members", "data"])
-  return asArray(payload)
-    .map((entry) => normalizeMember(entry))
-    .filter((entry): entry is RoomMember => Boolean(entry))
+  return asArray(payload).map((entry) => normalizeMember(entry)).filter((entry): entry is RoomMember => Boolean(entry))
 }
 
-function normalizeComment(source: unknown): Comment | null {
-  const record = asRecord(source)
-  if (!record) return null
 
-  return {
-    id: readString(record.id),
-    post_id: readString(record.post_id),
-    user_id: readString(record.user_id),
-    username: readString(record.username) || readString(record.name),
-    body: readString(record.body),
-    created_at: readString(record.created_at),
-  }
-}
 
 function normalizeComments(source: unknown): Comment[] {
   const payload = pickPayload(source, ["comments", "data"])
-  return asArray(payload)
-    .map((entry) => normalizeComment(entry))
-    .filter((entry): entry is Comment => Boolean(entry))
+  return asArray(payload).map((entry) => normalizeComment(entry)).filter((entry): entry is Comment => Boolean(entry))
 }
 
 function getLensFromTags(tags: string[]) {
   return tags.find((tag) => LENSES.includes(tag as (typeof LENSES)[number])) ?? "relevance"
 }
 
-function normalizePost(source: unknown): Post | null {
-  const record = asRecord(source)
-  if (!record) return null
 
-  const tags = asArray(record.tags).map((tag) => readString(tag)).filter(Boolean)
-  const references = asArray(record.references)
-  const firstReference = asRecord(references[0])
-  const chapterId = readNumber(firstReference?.chapterId)
-  const verseFrom = readNumber(firstReference?.from)
-  const verseKeyTag = tags.find((tag) => /^\d+:\d+$/.test(tag)) || (chapterId && verseFrom ? `${chapterId}:${verseFrom}` : undefined)
-
-  return {
-    id: readString(record.id) || String(readNumber(record.id)),
-    room_id: readString(record.room_id) || String(readNumber(record.roomId)),
-    user_id: readString(record.user_id) || String(readNumber(record.userId)),
-    username: readString(record.username) || readString(record.name),
-    avatar: readString(record.avatar) || undefined,
-    body: readString(record.body),
-    tags,
-    lens: getLensFromTags(tags),
-    verse_key: verseKeyTag,
-    created_at: readString(record.created_at),
-    like_count: readNumber(record.like_count) || readNumber(record.likesCount),
-    comment_count: readNumber(record.comment_count) || readNumber(record.commentsCount),
-    liked_by_me: readBoolean(record.liked_by_me) || readBoolean(record.likedByMe),
-  }
-}
-
-function normalizePosts(source: unknown): Post[] {
-  const payload = pickPayload(source, ["posts", "data"])
-  return asArray(payload)
-    .map((entry) => normalizePost(entry))
-    .filter((entry): entry is Post => Boolean(entry))
-}
-
-function normalizeBookmarks(source: unknown): Bookmark[] {
-  const payload = pickPayload(source, ["bookmarks", "data"])
-  return asArray(payload).map((entry) => {
-    const record = asRecord(entry)
-    return {
-      id: readString(record?.id),
-      verse_key: readString(record?.verse_key),
-      created_at: readString(record?.created_at),
-    }
-  })
-}
-
-function normalizeCollections(source: unknown): VerseCollection[] {
-  const payload = pickPayload(source, ["collections", "data"])
-  return asArray(payload).map((entry) => {
-    const record = asRecord(entry)
-    return {
-      id: readString(record?.id),
-      name: readString(record?.name),
-      verse_count: readNumber(record?.verse_count),
-      created_at: readString(record?.created_at),
-    }
-  })
-}
 
 function normalizeNotes(source: unknown): Note[] {
   const payload = pickPayload(source, ["notes", "data"])
   return asArray(payload).map((entry) => {
     const record = asRecord(entry)
-    return {
-      id: readString(record?.id),
-      verse_key: readString(record?.verse_key),
-      body: readString(record?.body),
-      created_at: readString(record?.created_at),
-    }
+    return { id: readString(record?.id), verse_key: readString(record?.verse_key), body: readString(record?.body), created_at: readString(record?.created_at) }
   })
 }
 
 function normalizeProfile(source: unknown): UserProfile | null {
   const record = asRecord(pickPayload(source, ["user", "profile", "data"]))
   if (!record) return null
-
   return {
     user_id: readString(record.user_id) || readString(record.id) || String(readNumber(record.id)),
     username: readString(record.username) || readString(record.name),
-    avatar:
-      readString(record.avatar) ||
-      readString(asRecord(record.avatarUrl)?.small) ||
-      readString(asRecord(record.avatarUrl)?.medium) ||
-      undefined,
+    avatar: readString(record.avatar) || readString(asRecord(record.avatarUrl)?.small) || readString(asRecord(record.avatarUrl)?.medium) || undefined,
     quran_account_tag: readString(record.quran_account_tag) || readString(record.email) || undefined,
   }
 }
@@ -437,7 +286,6 @@ function normalizeProfile(source: unknown): UserProfile | null {
 function normalizeStreak(source: unknown): UserStreak | null {
   const record = asRecord(pickPayload(source, ["streak", "data"]))
   if (!record) return null
-
   return {
     current_streak: readNumber(record.current_streak),
     max_streak: readNumber(record.max_streak),
@@ -449,447 +297,485 @@ function normalizeActivityDays(source: unknown): ActivityDay[] {
   const payload = pickPayload(source, ["activity_days", "days", "data"])
   return asArray(payload).map((entry) => {
     const record = asRecord(entry)
-    return {
-      date: readString(record?.date),
-      active: readBoolean(record?.active, true),
-    }
+    return { date: readString(record?.date), active: readBoolean(record?.active, true) }
   })
 }
 
 function normalizeGoals(source: unknown): Goal[] {
+  if (!source) return []
   const payload = pickPayload(source, ["goals", "data"])
   return asArray(payload).map((entry) => {
     const record = asRecord(entry)
-    return {
-      id: readString(record?.id),
-      type: readString(record?.type),
-      target: readNumber(record?.target),
-      progress: readNumber(record?.progress),
-      created_at: readString(record?.created_at),
-    }
+    return { id: readString(record?.id), type: readString(record?.type), target: readNumber(record?.target), progress: readNumber(record?.progress), created_at: readString(record?.created_at) }
   })
 }
 
 export function generateRoomUrl(name: string) {
-  return `${name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)}-${Date.now().toString(36)}`
+  return `${name.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)}-${Date.now().toString(36)}`
 }
 
-export async function createRoomResult(
-  accessToken: string,
-  name: string,
-  description = "",
-  url = generateRoomUrl(name),
-  isPublic = false,
-) {
-  const result = await safeFetchResult<unknown>(
-    "/rooms/groups",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name,
-        description,
-        url,
-        public: isPublic,
-      }),
-    },
-    accessToken,
-  )
+// ─── ROOMS (USER_BASE) ────────────────────────────────────────────────────────
 
-  return {
-    room: normalizeRoom(result.data),
-    error: result.error,
-  }
+export async function createRoomResult(accessToken: string, name: string, description = "", url = generateRoomUrl(name), isPublic = true) {
+  const result = await safeFetchResult<unknown>("/rooms/groups", { method: "POST", body: JSON.stringify({ name, description, url, public: isPublic }) }, accessToken)
+  return { room: normalizeRoom(result.data), error: result.error }
 }
-export async function createRoom(
-  accessToken: string,
-  name: string,
-  description = "",
-  url = generateRoomUrl(name),
-  isPublic = false,
-) {
+
+export async function createRoom(accessToken: string, name: string, description = "", url = generateRoomUrl(name), isPublic = true) {
   const result = await createRoomResult(accessToken, name, description, url, isPublic)
   return result.room
 }
 
 export async function getRoom(accessToken: string, roomId: string) {
-  const data = await safeFetch<unknown>(
-    `/rooms/${roomId}`,
-    undefined,
-    accessToken,
-  )
+  const data = await safeFetch<unknown>(`/rooms/${roomId}`, undefined, accessToken)
   return normalizeRoom(data)
 }
 
 export async function getRoomMembers(accessToken: string, roomId: string) {
-  const data = await safeFetch<unknown>(
-    `/rooms/${roomId}/members`,
-    undefined,
-    accessToken,
-  )
+  const data = await safeFetch<unknown>(`/rooms/${roomId}/members`, undefined, accessToken)
   return normalizeMembers(data)
 }
 
 export async function joinRoom(accessToken: string, roomId: string) {
   const data = await safeFetch<unknown>(
-    `/rooms/groups/${roomId}/join`,
+    `/rooms/${roomId}/join`,
     { method: "POST" },
     accessToken,
   )
-
-  return Boolean(data)
+  // API returns { joined: boolean }
+  const record = asRecord(data)
+  return record?.joined === true || Boolean(data)
 }
 
-export async function acceptInviteByToken(accessToken: string, roomId: string, inviteToken: string) {
+export async function getPublicCircles(accessToken: string, query = "quran") {
   const data = await safeFetch<unknown>(
-    `/rooms/${roomId}/accept-invite?token=${encodeURIComponent(inviteToken)}`,
-    { method: "POST" },
-    accessToken,
-  )
-
-  return Boolean(data)
-}
-
-export async function leaveRoom(accessToken: string, roomId: string) {
-  const data = await safeFetch<unknown>(
-    `/rooms/groups/${roomId}/leave`,
-    { method: "DELETE" },
-    accessToken,
-  )
-
-  return Boolean(data)
-}
-
-export async function inviteToRoom(accessToken: string, roomId: string, userId: string) {
-  const data = await safeFetch<unknown>(
-    `/rooms/${roomId}/invite`,
-    {
-      method: "POST",
-      body: JSON.stringify({ userId }),
-    },
-    accessToken,
-  )
-
-  return Boolean(data)
-}
-
-export async function getUserRooms(accessToken: string) {
-  const data = await safeFetch<unknown>(
-    "/rooms/joined-rooms?limit=5",
+    `/rooms/search?query=${encodeURIComponent(query)}&limit=20`,
     undefined,
     accessToken,
   )
+  return normalizeRoomArray(data)
+}
+export async function acceptInviteByToken(
+  accessToken: string,
+  url: string,
+  token: string
+) {
+  return Boolean(
+    await safeFetch<unknown>(
+      `/rooms/group/${encodeURIComponent(url)}/accept/${encodeURIComponent(token)}`,
+      { method: "GET" },
+      accessToken
+    )
+  )
+}
+export async function leaveRoom(accessToken: string, roomId: string) {
+  return Boolean(await safeFetch<unknown>(`/rooms/${roomId}/leave`, { method: "POST" }, accessToken))
+}
+
+export async function inviteToRoom(accessToken: string, roomId: string, userId: string) {
+  return Boolean(await safeFetch<unknown>(`/rooms/${roomId}/invite`, { method: "POST", body: JSON.stringify({ userIds: [userId] }) }, accessToken))
+}
+
+export async function getUserRooms(accessToken: string) {
+  const data = await safeFetch<unknown>("/users/my-rooms?limit=5", undefined, accessToken)
   return normalizeRoomArray(data)
 }
 
 export async function getUserRoomsResult(accessToken: string) {
-  const result = await safeFetchResult<unknown>(
-    "/rooms/joined-rooms?limit=5",
-    undefined,
-    accessToken,
-  )
-
-  return {
-    rooms: normalizeRoomArray(result.data),
-    error: result.error,
-  }
+  const result = await safeFetchResult<unknown>("/users/my-rooms?limit=5", undefined, accessToken)
+  return { rooms: normalizeRoomArray(result.data), error: result.error }
 }
 
 export async function searchRooms(accessToken: string, query: string) {
-  const data = await safeFetch<unknown>(
-    `/rooms/search?query=${encodeURIComponent(query)}`,
-    undefined,
-    accessToken,
-  )
+  const data = await safeFetch<unknown>(`/rooms/search?query=${encodeURIComponent(query)}`, undefined, accessToken)
   return normalizeRoomArray(data)
 }
 
+export async function getRoomByUrl(accessToken: string, url: string) {
+  const data = await safeFetch<unknown>(`/rooms/profile-by-url?url=${encodeURIComponent(url.trim())}`, undefined, accessToken)
+  return normalizeRoom(data)
+}
+
+export async function getRoomByInviteCode(accessToken: string, inviteCode: string) {
+  // First try searching by name (invite code might match room name)
+  const rooms = await searchRooms(accessToken, inviteCode.trim())
+  const exactMatch = rooms?.find(
+    (room) => room.invite_code?.toLowerCase() === inviteCode.trim().toLowerCase(),
+  )
+  if (exactMatch) return exactMatch
+
+  // Fallback: try looking up by URL (invite code might be the room's url/subdomain field)
+  return await getRoomByUrl(accessToken, inviteCode)
+}
+
 export async function getRoomPosts(accessToken: string, roomId: string) {
-  const data = await safeFetch<unknown>(
-    `/rooms/${roomId}/posts`,
-    undefined,
-    accessToken,
-  )
-  return normalizePosts(data)
+  let timedOut = false
+  const timeout = setTimeout(() => { timedOut = true }, 20_000)
+
+  try {
+    const data = await safeFetch<unknown>(`/rooms/${roomId}/posts`, {}, accessToken)
+    clearTimeout(timeout)
+
+    if (data == null) return []
+
+    return normalizePosts(data) // ✅ FIXED
+  } catch (err: unknown) {
+    clearTimeout(timeout)
+
+    if (timedOut) {
+      console.warn(`[getRoomPosts] Timed out for room ${roomId}`)
+      return []
+    }
+
+    console.warn(`[getRoomPosts] Failed for room ${roomId}:`, err)
+    return []
+  }
 }
 
-export async function createPost(
-  accessToken: string,
-  body: string,
-  roomId: number,
-  verseKey: string,
-  lens: string,
-) {
+export async function createPost(accessToken: string, body: string, roomId: string | number, verseKey: string, lens: string) {
   const [chapterId, verseFrom] = verseKey.split(":").map(Number)
-
-  const data = await safeFetch<unknown>(
-    "/posts",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        post: {
-          body,
-          roomId,
-          status: 0,
-          draft: false, // ✅ FIX
-          references: [
-            {
-              chapterId,
-              from: verseFrom,
-              to: verseFrom,
-            },
-          ],
-          tags: [lens],
-        },
-      }),
+  const payload = {
+    post: {
+      body,
+      roomId: Number(roomId),
+      roomPostStatus: 0,
+      draft: false,
+      references: [{ chapterId, from: verseFrom, to: verseFrom }],
+      tags: [lens],
+      mentions: [],
+      postAsAuthorId: "",
+      publishedAt: new Date().toISOString
     },
-    accessToken,
-  )
+  }
 
+  const response = await fetch(`${USER_BASE}/posts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "x-auth-token": accessToken, "x-client-id": CLIENT_ID },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    console.error(`createPost failed: ${response.status} ${err}`)
+    return null
+  }
+
+  const data = await response.json()
   return normalizePost(pickPayload(data, ["post", "data"]) ?? data)
-}
-export async function deletePost(accessToken: string, postId: string) {
-  const data = await safeFetch<unknown>(
-    `/posts/${postId}`,
-    { method: "DELETE" },
-    accessToken,
-  )
-
-  return Boolean(data ?? true)
 }
 
 export async function likePost(accessToken: string, postId: string) {
-  const data = await safeFetch<unknown>(
-    `/posts/${postId}/like`,
-    { method: "POST" },
-    accessToken,
-  )
-
-  return Boolean(data)
+  return Boolean(await safeFetch<unknown>(`/posts/${postId}/like`, { method: "POST" }, accessToken))
 }
 
 export async function getComments(accessToken: string, postId: string) {
-  const data = await safeFetch<unknown>(
-    `/posts/${postId}/comments`,
-    undefined,
-    accessToken,
-  )
+  const data = await safeFetch<unknown>(`/posts/${postId}/comments`, undefined, accessToken)
   return normalizeComments(data)
 }
 
 export async function createComment(accessToken: string, postId: string, body: string) {
-  const data = await safeFetch<unknown>(
-    `/posts/${postId}/comments`,
-    {
-      method: "POST",
-      body: JSON.stringify({ body }),
-    },
-    accessToken,
-  )
-
+  const data = await safeFetch<unknown>(`/posts/${postId}/comments`, { method: "POST", body: JSON.stringify({ body }) }, accessToken)
   return normalizeComment(pickPayload(data, ["comment", "data"]) ?? data)
 }
 
-export async function bookmarkVerse(accessToken: string, verseKey: string) {
-  const data = await safeFetch<unknown>(
-    "/bookmarks",
-    {
-      method: "POST",
-      body: JSON.stringify({ verse_key: verseKey }),
-    },
-    accessToken,
-  )
+// ─── AUTH/PERSONAL DATA (AUTH_BASE) ──────────────────────────────────────────
 
-  return Boolean(data)
-}
 
-export async function getBookmarks(accessToken: string) {
-  const data = await safeFetch<unknown>("/bookmarks", undefined, accessToken)
-  return normalizeBookmarks(data)
-}
 
-export async function getCollections(accessToken: string) {
-  const data = await safeFetch<unknown>("/collections?first=1", undefined, accessToken)
-  return normalizeCollections(data)
-}
-
-export async function createCollection(accessToken: string, name: string) {
-  const data = await safeFetch<unknown>(
-    "/collections",
-    {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    },
-    accessToken,
-  )
-
-  return normalizeCollections({ collections: [pickPayload(data, ["collection", "data"]) ?? data] })[0] ?? null
-}
-
-export async function addToCollection(accessToken: string, collectionId: string, verseKey: string) {
-  const data = await safeFetch<unknown>(
-    `/collections/${collectionId}/verses`,
-    {
-      method: "POST",
-      body: JSON.stringify({ verse_key: verseKey }),
-    },
-    accessToken,
-  )
-
-  return Boolean(data)
-}
-
-export async function createNote(accessToken: string, verseKey: string, body: string) {
-  const data = await safeFetch<unknown>(
-    "/notes",
-    {
-      method: "POST",
-      body: JSON.stringify({ verse_key: verseKey, body }),
-    },
-    accessToken,
-  )
-
-  return normalizeNotes({ notes: [pickPayload(data, ["note", "data"]) ?? data] })[0] ?? null
-}
-
-export async function getNotes(accessToken: string) {
-  const data = await safeFetch<unknown>("/notes", undefined, accessToken)
-  return normalizeNotes(data)
-}
-
-export async function getUserProfile(accessToken: string) {
-  const result = await safeFetchResult<unknown>(
-    "/users/me",
-    undefined,
-    accessToken,
-  )
-
-  if (result.error?.status === 404) {
-    return null // ✅ handle gracefully
-  }
-
-  return normalizeProfile(result.data)
-}
 export async function getStreaks(accessToken: string) {
-  const data = await safeFetch<unknown>("/users/me/streaks", undefined, accessToken)
+  const data = await safeFetch<unknown>("/streaks?first=1&status=ACTIVE&type=QURAN", undefined, accessToken, true, AUTH_BASE)
   return normalizeStreak(data)
 }
 
 export async function getActivityDays(accessToken: string) {
-  const data = await safeFetch<unknown>(
-    "/users/me/activity-days",
-    undefined,
-    accessToken,
-  )
+  const data = await safeFetch<unknown>("/activity-days?first=20", undefined, accessToken, true, AUTH_BASE)
   return normalizeActivityDays(data)
 }
 
-export async function getGoals(accessToken: string) {
-  const data = await safeFetch<unknown>("/users/me/goals", undefined, accessToken)
-  return normalizeGoals(data)
-}
 
 export async function createGoal(accessToken: string, type: string, target: number) {
-  const data = await safeFetch<unknown>(
-    "/users/me/goals",
-    {
-      method: "POST",
-      body: JSON.stringify({ type, target }),
-    },
-    accessToken,
-  )
-
+  const data = await safeFetch<unknown>("/goals", { method: "POST", body: JSON.stringify({ type, target }) }, accessToken, true, AUTH_BASE)
   return normalizeGoals({ goals: [pickPayload(data, ["goal", "data"]) ?? data] })[0] ?? null
 }
 
-export async function logReadingSession(accessToken: string, verseKey: string, duration: number) {
+export async function bookmarkVerse(accessToken: string, verseKey: string) {
+  const [chapter, verse] = verseKey.split(":").map(Number)
   const data = await safeFetch<unknown>(
-    "/reading-sessions",
-    {
-      method: "POST",
-      body: JSON.stringify({ verse_key: verseKey, duration }),
-    },
-    accessToken,
+    "/bookmarks",
+    { method: "POST", body: JSON.stringify({ key: chapter, type: "ayah", verseNumber: verse, mushaf: 1 }) },
+    accessToken, true, AUTH_BASE,
   )
-
   return Boolean(data)
 }
 
-export async function fetchVerseByKey(verseKey: string) {
+export async function getBookmarks(accessToken: string) {
+  const data = await safeFetch<unknown>("/bookmarks?first=20&mushafId=1", undefined, accessToken, true, AUTH_BASE)
+  return normalizeBookmarks(data)
+}
+
+export async function getCollections(accessToken: string) {
+  const data = await safeFetch<unknown>("/collections?first=20", undefined, accessToken, true, AUTH_BASE)
+  return normalizeCollections(data)
+}
+
+export async function createCollection(accessToken: string, name: string) {
+  const data = await safeFetch<unknown>("/collections", { method: "POST", body: JSON.stringify({ name }) }, accessToken, true, AUTH_BASE)
+  return normalizeCollections({ collections: [pickPayload(data, ["collection", "data"]) ?? data] })[0] ?? null
+}
+
+export async function addToCollection(accessToken: string, collectionId: string, verseKey: string) {
+  const [chapter, verse] = verseKey.split(":").map(Number)
   const data = await safeFetch<unknown>(
-    `/verses/by_key/${verseKey}?words=true&translations=131&tafsirs=169`,
-    { headers: { 'x-client-id': CLIENT_ID } },  // ← add this
-    undefined,
-    false,
-    CONTENT_BASE,
+    `/collections/${collectionId}/bookmarks`,
+    { method: "POST", body: JSON.stringify({ key: chapter, type: "ayah", verseNumber: verse, mushaf: 1 }) },
+    accessToken, true, AUTH_BASE,
   )
+  return Boolean(data)
+}
+
+export async function createNote(accessToken: string, verseKey: string, body: string) {
+  const range = `${verseKey}-${verseKey}`
+  const data = await safeFetch<unknown>("/notes", { method: "POST", body: JSON.stringify({ body, saveToQR: false, ranges: [range] }) }, accessToken, true, AUTH_BASE)
+  return normalizeNotes({ notes: [pickPayload(data, ["note", "data"]) ?? data] })[0] ?? null
+}
+
+export async function getNotes(accessToken: string) {
+  const data = await safeFetch<unknown>("/notes?limit=20", undefined, accessToken, true, AUTH_BASE)
+  return normalizeNotes(data)
+}
+
+export async function logReadingSession(accessToken: string, verseKey: string, duration: number) {
+  const data = await safeFetch<unknown>("/reading-sessions", { method: "POST", body: JSON.stringify({ verse_key: verseKey, duration }) }, accessToken, true, AUTH_BASE)
+  return Boolean(data)
+}
+
+// ─── CONTENT (via Next.js API routes — server-side token) ────────────────────
+
+export async function fetchRandomVerse() {
+  const data = await safeFetch<unknown>("/verses/random?translations=131", undefined, undefined, false, CONTENT_BASE)
   return normalizeVerse(data)
 }
 
-export async function fetchAudio(verseKey: string, recitationId = 7) {
-  const data = await safeFetch<unknown>(
-    `/recitations/${recitationId}/by_ayah/${verseKey}`,
-    { headers: { 'x-client-id': CLIENT_ID } },  // ← add this
-    undefined,
-    false,
-    CONTENT_BASE,
-  )
-  return normalizeAudio(data, verseKey)
+export async function fetchVerseByKey(verseKey: string) {
+  try {
+    const res = await fetch(`/api/content/verse?verseKey=${encodeURIComponent(verseKey)}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return normalizeVerse(data.verse)
+  } catch { return null }
+}
+
+export async function fetchAudio(verseKey: string) {
+  try {
+    const res = await fetch(`/api/content/verse?verseKey=${encodeURIComponent(verseKey)}`)
+    if (res.status >= 500 || res.status === 504 || res.status === 503 || res.status === 502) {
+      // Server error — throw so fetchWithRetry retries
+      throw new Error(`Server error: ${res.status}`)
+    }
+    if (!res.ok) return null
+    const data = await res.json()
+    return normalizeAudio(data.audio, verseKey)
+  } catch (err) {
+    // Network errors also throw and trigger retry via fetchWithRetry
+    console.warn("[fetchAudio]", err)
+    return null
+  }
 }
 
 export async function fetchTafsir(verseKey: string, tafsirId = 169) {
-  const data = await safeFetch<unknown>(
-    `/tafsirs/${tafsirId}/verses/${verseKey}`,
-    { headers: { 'x-client-id': CLIENT_ID } },  // ← add this
-    undefined,
-    false,
-    CONTENT_BASE,
-  )
-  return normalizeTafsir(data)
+  try {
+    const res = await fetch(`/api/content/tafsir?verseKey=${encodeURIComponent(verseKey)}&tafsirId=${tafsirId}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return normalizeTafsir(data.tafsir, verseKey)
+  } catch { return null }
 }
-
 
 export async function fetchChapter(chapterNumber: number) {
-  const data = await safeFetch<unknown>(
-    `/chapters/${chapterNumber}`,
-    undefined,
-    undefined,
-    false,
-    CONTENT_BASE,
-  )
-
-  return normalizeChapter(data)
-}
-
-export async function fetchRandomVerse() {
-  const data = await safeFetch<unknown>(
-    "/verses/random?translations=131",
-    undefined,
-    undefined,
-    false,
-    CONTENT_BASE,
-  )
-
-  return normalizeVerse(data)
+  try {
+    const res = await fetch(`/api/content/chapters`)
+    if (!res.ok) return null
+    const data = await res.json()
+    const chapters = asArray(data.chapters ?? pickPayload(data, ["chapters", "data"]))
+    const chapter = chapters.find((c) => readNumber(asRecord(c)?.id) === chapterNumber)
+    return normalizeChapter(chapter ? { chapter } : null)
+  } catch { return null }
 }
 
 export async function getAllSurahs(): Promise<LegacySurah[]> {
-  const data = await safeFetch<unknown>("/chapters", undefined, undefined, false, CONTENT_BASE)
-  const payload = pickPayload(data, ["chapters", "data"])
+  try {
+    const res = await fetch(`/api/content/chapters`)
+    if (!res.ok) return []
+    const data = await res.json()
+    const payload = asArray(data.chapters ?? pickPayload(data, ["chapters", "data"]))
+    return payload.map((entry) => {
+      const record = asRecord(entry)
+      if (!record) return null
+      return {
+        id: readNumber(record.id),
+        number: readNumber(record.id),
+        name: readString(record.name_simple) || readString(record.name_complex) || readString(record.name),
+        nameArabic: readString(record.name_arabic),
+        revelationType: (readString(record.revelation_place) === "madinah" ? "Medinan" : "Meccan") as LegacySurah["revelationType"],
+        numberOfAyahs: readNumber(record.verses_count),
+      }
+    }).filter((s): s is LegacySurah => s !== null && s.id > 0)
+  } catch { return [] }
+}
 
-  return asArray(payload).map((entry) => {
-    const record = asRecord(entry)
+
+export async function deletePost(accessToken: string, postId: string) {
+  const response = await fetch(`${USER_BASE}/posts/${postId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "x-auth-token": accessToken, "x-client-id": CLIENT_ID },
+  })
+  return response.ok
+}
+
+export async function getUserProfile(accessToken: string) {
+  // Try USER_BASE first, fall back silently
+  const result = await safeFetchResult<unknown>("/users/profile", undefined, accessToken, true, USER_BASE)
+  if (result.error?.status === 404 || result.error?.status === 0) return null
+  return normalizeProfile(result.data)
+}
+
+export async function getGoals(accessToken: string) {
+  const data = await safeFetch<unknown>(
+    "/goals/get-todays-plan?type=QURAN_TIME&mushafId=1",
+    { method: "GET" },
+    accessToken,
+    true,
+    AUTH_BASE,
+  )
+  return normalizeGoals(data ?? { goals: [] })
+}
+
+function normalizePost(source: unknown): Post | null {
+  const record = asRecord(source)
+  if (!record) return null
+  const tags = asArray(record.tags).map((tag) => {
+    // QF returns tags as objects { id, name, language } or as strings
+    const r = asRecord(tag)
+    return r ? readString(r.name) : readString(tag)
+  }).filter(Boolean)
+  const references = asArray(record.references)
+  const firstReference = asRecord(references[0])
+  const chapterId = readNumber(firstReference?.chapterId)
+  const verseFrom = readNumber(firstReference?.from)
+  const verseKeyTag = tags.find((tag) => /^\d+:\d+$/.test(tag)) || (chapterId && verseFrom ? `${chapterId}:${verseFrom}` : undefined)
+
+  // QF returns author as nested object
+  const author = asRecord(record.author)
+  const username =
+    readString(record.username) ||
+    readString(record.name) ||
+    readString(author?.username) ||
+    readString(author?.displayName) ||
+    [readString(author?.firstName), readString(author?.lastName)].filter(Boolean).join(" ") ||
+    "Anonymous"
+
+  const avatar =
+    readString(record.avatar) ||
+    readString(asRecord(record.avatarUrls)?.small) ||
+    readString(asRecord(author?.avatarUrls)?.small) ||
+    undefined
+
+  return {
+    id: readString(record.id) || String(readNumber(record.id)),
+    room_id: readString(record.room_id) || String(readNumber(record.roomId)),
+    user_id: readString(record.user_id) || readString(record.authorId) || String(readNumber(record.userId)),
+    username,
+    avatar,
+    body: readString(record.body),
+    tags,
+    lens: getLensFromTags(tags),
+    verse_key: verseKeyTag,
+    created_at: readString(record.created_at) || readString(record.createdAt) || new Date().toISOString(),
+    like_count: readNumber(record.like_count) || readNumber(record.likeCount) || readNumber(record.likesCount),
+    comment_count: readNumber(record.comment_count) || readNumber(record.commentCount) || readNumber(record.commentsCount),
+    liked_by_me: readBoolean(record.liked_by_me) || readBoolean(record.isLiked) || readBoolean(record.likedByMe),
+  }
+}
+function normalizePosts(source: unknown): Post[] {
+  const payload = pickPayload(source, ["posts", "data"])
+
+  return asArray(payload)
+    .map((entry) => normalizePost(entry))
+    .filter((entry): entry is Post => Boolean(entry))
+}
+
+function normalizeMember(source: unknown): RoomMember | null {
+  const record = asRecord(source)
+  if (!record) return null
+  const username =
+    readString(record.username) ||
+    readString(record.name) ||
+    readString(record.displayName) ||
+    [readString(record.firstName), readString(record.lastName)].filter(Boolean).join(" ") ||
+    "Member"
+  return {
+    user_id: readString(record.user_id) || readString(record.id) || String(readNumber(record.id)),
+    username,
+    avatar:
+      readString(record.avatar) ||
+      readString(asRecord(record.avatarUrl)?.small) ||
+      readString(asRecord(record.avatarUrls)?.small) ||
+      undefined,
+    joined_at: readString(record.joined_at) || readString(record.createdAt) || new Date().toISOString(),
+    has_reflected_today: readBoolean(record.has_reflected_today),
+  }
+}
+
+function normalizeComment(source: unknown): Comment | null {
+  const record = asRecord(source)
+  if (!record) return null
+  const author = asRecord(record.author)
+  const username =
+    readString(record.username) ||
+    readString(record.name) ||
+    readString(author?.username) ||
+    readString(author?.displayName) ||
+    [readString(author?.firstName), readString(author?.lastName)].filter(Boolean).join(" ") ||
+    "Anonymous"
+  return {
+    id: readString(record.id),
+    post_id: readString(record.post_id) || readString(record.postId),
+    user_id: readString(record.user_id) || readString(record.authorId),
+    username,
+    body: readString(record.body),
+    created_at: readString(record.created_at) || readString(record.createdAt) || new Date().toISOString(),
+  }
+}
+
+function normalizeBookmarks(source: unknown): Bookmark[] {
+  // QF auth/v1 returns { data: { bookmarks: [...] } } or { data: [...] }
+  const record = asRecord(source)
+  const inner = asRecord(record?.data)
+  const payload = asArray(inner?.bookmarks ?? record?.data ?? pickPayload(source, ["bookmarks", "data"]))
+  return payload.map((entry) => {
+    const r = asRecord(entry)
+    const verseNum = readNumber(r?.verseNumber)
+    const key = readNumber(r?.key)
+    const verse_key = readString(r?.verse_key) || (key && verseNum ? `${key}:${verseNum}` : "")
     return {
-      id: readNumber(record?.id),
-      number: readNumber(record?.id),
-      name: readString(record?.name_simple) || readString(record?.name),
-      nameArabic: readString(record?.name_arabic),
-      revelationType: (readString(record?.revelation_place) || "Meccan") as LegacySurah["revelationType"],
-      numberOfAyahs: readNumber(record?.verses_count),
+      id: readString(r?.id),
+      verse_key,
+      created_at: readString(r?.created_at) || readString(r?.createdAt) || new Date().toISOString(),
+    }
+  })
+}
+
+function normalizeCollections(source: unknown): VerseCollection[] {
+  const record = asRecord(source)
+  const inner = asRecord(record?.data)
+  const payload = asArray(inner?.collections ?? record?.data ?? pickPayload(source, ["collections", "data"]))
+  return payload.map((entry) => {
+    const r = asRecord(entry)
+    return {
+      id: readString(r?.id),
+      name: readString(r?.name),
+      verse_count: readNumber(r?.verse_count) || readNumber(r?.bookmarksCount) || readNumber(r?.count),
+      created_at: readString(r?.created_at) || readString(r?.createdAt) || new Date().toISOString(),
     }
   })
 }

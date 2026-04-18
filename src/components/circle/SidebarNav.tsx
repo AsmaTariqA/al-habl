@@ -69,6 +69,14 @@ const items = [
 export function SidebarNav() {
   const pathname = usePathname()
 
+  async function handleLogout() {
+    const confirmed = window.confirm("Are you sure you want to log out?")
+    if (!confirmed) return
+    await fetch("/api/auth/logout", { method: "POST" })
+    localStorage.clear()
+    window.location.href = "/auth/login"
+  }
+
   return (
     <nav className="space-y-1">
       {items.map(({ href, label, icon }) => {
@@ -88,6 +96,18 @@ export function SidebarNav() {
           </Link>
         )
       })}
+      <button
+        type="button"
+        onClick={() => void handleLogout()}
+        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[var(--muted)] hover:bg-white/5 hover:text-red-400 transition-all"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" strokeLinecap="round" />
+          <polyline points="16 17 21 12 16 7" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1="21" y1="12" x2="9" y2="12" strokeLinecap="round" />
+        </svg>
+        <span>Log out</span>
+      </button>
     </nav>
   )
 }

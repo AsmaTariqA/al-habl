@@ -1,113 +1,63 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createRoomResult, getRoom, getUserRoomsResult } from "@/lib/qf-api"
-import { getRequestAccessToken } from "@/lib/server-qf"
-import { setRoomCookie } from "@/lib/server-qf"
-
-async function getUserRoomsResultWithTimeout(accessToken: string, timeoutMs = 4_000) {
-  return Promise.race([
-    getUserRoomsResult(accessToken),
-    new Promise<Awaited<ReturnType<typeof getUserRoomsResult>>>((resolve) => {
-      setTimeout(() => {
-        resolve({
-          rooms: [],
-          error: {
-            status: 0,
-            statusText: "Timeout",
-            message: "Room lookup timed out.",
-            type: "timeout",
-          },
-        })
-      }, timeoutMs)
-    }),
-  ])
-}
+import { createRoom, getUserRoomsResult } from "@/lib/qf-api"
+import { getRequestAccessToken, setRoomCookie } from "@/lib/server-qf"
+import { getSupabaseAdmin } from "@/lib/supabase"
 
 export async function GET(request: NextRequest) {
   const auth = await getRequestAccessToken(request)
-  if (!auth) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
 
-  const existingRoomId = request.cookies.get("qf_room_id")?.value
-  const room = existingRoomId
-    ? await getRoom(auth.accessToken, existingRoomId)
-    : null
+  // Return Al-Habl circles from Supabase — no auth needed to browse
+  const supabase = getSupabaseAdmin()
+  const { data: circles } = await supabase
+    .from("al_habl_circles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50)
 
-  if (room) {
-    const response = NextResponse.json({ room })
-    setRoomCookie(response, room.id)
-    return response
-  }
-
-  const roomList = await getUserRoomsResultWithTimeout(auth.accessToken)
-  if (roomList.error) {
-    if (roomList.error.type === "insufficient_scope") {
-      return NextResponse.json({
-        room: null,
-        scopeLimited: true,
-      })
+  // Also check if this user already has a room
+  if (auth) {
+    const { rooms } = await getUserRoomsResult(auth.accessToken)
+    const alHablIds = new Set((circles ?? []).map((c: { id: string }) => c.id))
+    const myRoom = rooms.find((r) => alHablIds.has(r.id))
+    if (myRoom) {
+      return NextResponse.json({ room: myRoom, circles: circles ?? [] })
     }
-
-    if (roomList.error.type === "timeout") {
-      return NextResponse.json({
-        room: null,
-        roomLookupTimedOut: true,
-      })
-    }
-
-    return NextResponse.json(
-      {
-        error: roomList.error.message,
-        type: roomList.error.type ?? null,
-      },
-      { status: roomList.error.status || 500 },
-    )
   }
 
-  const firstRoom = roomList.rooms[0] ?? null
-  const response = NextResponse.json({ room: firstRoom })
-
-  if (firstRoom) {
-    setRoomCookie(response, firstRoom.id)
-  }
-
-  return response
+  return NextResponse.json({ room: null, circles: circles ?? [] })
 }
 
 export async function POST(request: NextRequest) {
   const auth = await getRequestAccessToken(request)
-  if (!auth) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { name, description } = (await request.json()) as {
-    name?: string
-    description?: string
-  }
+  const body = (await request.json()) as { name?: string; description?: string }
 
-  if (!name?.trim()) {
+  if (!body.name?.trim()) {
     return NextResponse.json({ error: "Circle name is required." }, { status: 400 })
   }
 
-  const result = await createRoomResult(auth.accessToken, name.trim(), description?.trim())
-  if (!result.room) {
-    return NextResponse.json(
-      {
-        error:
-          result.error?.type === "insufficient_scope"
-            ? "Your Quran Foundation account is not enabled for circle creation yet."
-            : result.error?.message ?? "We couldn't create your circle right now.",
-        type: result.error?.type ?? null,
-      },
-      { status: result.error?.status || 500 },
-    )
+  const room = await createRoom(auth.accessToken, body.name.trim(), body.description ?? "")
+
+  if (!room?.id) {
+    return NextResponse.json({ error: "Failed to create circle." }, { status: 500 })
   }
 
-  const response = NextResponse.json({
-    room: result.room,
-    inviteCode: result.room.invite_code ?? null,
-  })
-  setRoomCookie(response, result.room.id)
+  // Store in Supabase so other Al-Habl users can find and join it
+  const supabase = getSupabaseAdmin()
+  await supabase.from("al_habl_circles").upsert({
+    id: room.id,
+    name: room.name,
+    description: room.description ?? "",
+    invite_code: room.invite_code ?? null,
+    member_count: 1,
+    created_by: auth.userId,
+  }, { onConflict: "id" })
 
+  const response = NextResponse.json({
+    room,
+    inviteCode: room.invite_code ?? null,
+  })
+  setRoomCookie(response, room.id)
   return response
 }

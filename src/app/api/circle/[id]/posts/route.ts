@@ -45,13 +45,13 @@ export async function POST(
     ? body.lens ?? "relevance"
     : "relevance"
   const verseKey = body.verseKey ?? body.tags?.find((tag) => /^\d+:\d+$/.test(tag)) ?? getTodayVerseKey()
-  const roomId = Number(id)
+  const roomIdNum = Number(id)
 
-  if (!Number.isFinite(roomId)) {
+  if (!Number.isFinite(roomIdNum)) {
     return NextResponse.json({ error: "Invalid room id." }, { status: 400 })
   }
 
-  const post = await createPost(auth.accessToken, body.body.trim(), roomId, verseKey, lensTag)
+  const post = await createPost(auth.accessToken, body.body.trim(), roomIdNum, verseKey, lensTag)
   if (!post) {
     return NextResponse.json(
       { error: "Your reflection couldn't be posted." },

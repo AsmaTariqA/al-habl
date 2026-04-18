@@ -1,56 +1,58 @@
 import { NextRequest, NextResponse } from "next/server"
-import { acceptInviteByToken, getRoom, joinRoom, searchRooms } from "@/lib/qf-api"
 import { getRequestAccessToken, setRoomCookie } from "@/lib/server-qf"
-
-async function resolveRoomId(accessToken: string, roomId?: string, inviteCode?: string) {
-  if (roomId) return roomId
-  if (!inviteCode) return null
-
-  // TODO: Verify invite-code lookup behavior in the QF room docs. This assumes search can resolve invite codes.
-  const rooms = await searchRooms(accessToken, inviteCode.trim())
-  const exactMatch = rooms?.find((room) => room.invite_code?.toLowerCase() === inviteCode.trim().toLowerCase())
-  return exactMatch?.id ?? null
-}
+import { getSupabaseAdmin } from "@/lib/supabase"
 
 export async function POST(request: NextRequest) {
   const auth = await getRequestAccessToken(request)
-  if (!auth) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const body = (await request.json()) as {
-    roomId?: string
-    inviteCode?: string
-    inviteToken?: string
-  }
+  const body = (await request.json()) as { roomId?: string }
+  if (!body.roomId) return NextResponse.json({ error: "roomId required" }, { status: 400 })
 
-  if (body.roomId && body.inviteToken) {
-    const joined = await acceptInviteByToken(auth.accessToken, body.roomId, body.inviteToken)
-    if (!joined) {
-      return NextResponse.json({ error: "Invite token is invalid." }, { status: 409 })
+  const { roomId } = body
+
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_QF_API_URL}/quran-reflect/v1/rooms/${roomId}/join`,
+    {
+      method: "POST",
+      headers: {
+        "x-auth-token": auth.accessToken,
+        "x-client-id": process.env.NEXT_PUBLIC_QF_CLIENT_ID!,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
     }
+  )
 
-    const room = await getRoom(auth.accessToken, body.roomId)
-    const response = NextResponse.json({ room })
-    setRoomCookie(response, body.roomId)
-    return response
+  let alreadyMember = false
+
+  if (!res.ok) {
+    const errText = await res.text()
+    const isAlreadyMember = errText.includes("ALREADY_A_MEMBER")
+    if (!isAlreadyMember) {
+      return NextResponse.json({ error: "Could not join circle." }, { status: 409 })
+    }
+    alreadyMember = true
   }
 
-  const resolvedRoomId = await resolveRoomId(auth.accessToken, body.roomId, body.inviteCode)
-  if (!resolvedRoomId) {
-    return NextResponse.json({ error: "Circle not found." }, { status: 404 })
+  // Only increment count for genuinely new joins
+  if (!alreadyMember) {
+    const supabase = getSupabaseAdmin()
+    const { data: circle } = await supabase
+      .from("al_habl_circles")
+      .select("member_count")
+      .eq("id", roomId)
+      .single()
+
+    if (circle) {
+      await supabase
+        .from("al_habl_circles")
+        .update({ member_count: (circle.member_count ?? 1) + 1 })
+        .eq("id", roomId)
+    }
   }
 
-  const joined = await joinRoom(auth.accessToken, resolvedRoomId)
-  if (!joined) {
-    return NextResponse.json(
-      { error: "Circle is full or the invite is no longer valid." },
-      { status: 409 },
-    )
-  }
-
-  const room = await getRoom(auth.accessToken, resolvedRoomId)
-  const response = NextResponse.json({ room })
-  setRoomCookie(response, resolvedRoomId)
+  const response = NextResponse.json({ success: true, roomId })
+  setRoomCookie(response, roomId)
   return response
 }

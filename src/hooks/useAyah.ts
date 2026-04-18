@@ -1,13 +1,5 @@
 "use client"
 
-// src/hooks/useAyah.ts
-// Only change from original: fetchVerseByKey, fetchAudio, fetchTafsir
-// now go through /api/content/* server routes automatically
-// because qf-api.ts was updated — no changes needed here EXCEPT
-// the fetchTafsirForToday call which was calling fetchTafsir directly.
-// That still works because fetchTafsir now calls /api/content/tafsir internally.
-// This file is UNCHANGED from your original — keeping it for reference.
-
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { fetchAudio, fetchChapter, fetchTafsir, fetchVerseByKey } from "@/lib/qf-api"
 import {
@@ -30,7 +22,16 @@ interface CachedAyah {
   verse: Verse
 }
 
-export function useAyah() {
+async function fetchWithRetry<T>(fn: () => Promise<T | null>, retries = 3, delayMs = 2000): Promise<T | null> {
+  for (let i = 0; i < retries; i++) {
+    const result = await fn().catch(() => null)
+    if (result) return result
+    if (i < retries - 1) await new Promise(r => setTimeout(r, delayMs))
+  }
+  return null
+}
+
+export function useAyah(overrideVerseKey?: string) {
   const [verse, setVerse] = useState<Verse | null>(null)
   const [chapter, setChapter] = useState<Chapter | null>(null)
   const [audio, setAudio] = useState<AudioRecitation | null>(null)
@@ -42,15 +43,18 @@ export function useAyah() {
   const dateKey = useMemo(() => getStudyDateKey(), [])
   const dayNumber = useMemo(() => getTodayDayNumber(), [])
   const verseNumber = useMemo(() => getTodayVerseNumber(), [])
-  const verseKey = useMemo(() => getTodayVerseKey(), [])
+  const defaultVerseKey = useMemo(() => getTodayVerseKey(), [])
+  const verseKey = overrideVerseKey ?? defaultVerseKey
   const lens = useMemo(() => getTodayLens(), [])
 
   const fetchVerse = useCallback(async () => {
     setLoading(true)
     setError(null)
 
-    const cacheKey = `${AYAH_CACHE_PREFIX}:${dateKey}`
-    if (typeof window !== "undefined") {
+    // Skip cache when override is provided and differs from default — always fetch fresh
+    const isOverride = Boolean(overrideVerseKey)
+    const cacheKey = `${AYAH_CACHE_PREFIX}:${overrideVerseKey ?? dateKey}`
+    if (typeof window !== "undefined" && !isOverride) {
       const cached = localStorage.getItem(cacheKey)
       if (cached) {
         try {
@@ -66,29 +70,36 @@ export function useAyah() {
       }
     }
 
-    // fetchVerseByKey now calls /api/content/verse server route
-    // which returns verse + chapter + audio in one request.
-    // We call fetchAudio separately only to keep the interface identical —
-    // but it also hits the same server route so it's cached after the first call.
+    // Retry up to 3 times — QF pre-prod is flaky
     const [verseData, audioData] = await Promise.all([
-      fetchVerseByKey(verseKey),
-      fetchAudio(verseKey),
+      fetchWithRetry(() => fetchVerseByKey(verseKey)),
+      fetchWithRetry(() => fetchAudio(verseKey)),
     ])
 
     if (!verseData) {
-      setError("We couldn't load today's ayah.")
+      setError("We couldn't load today's ayah. Please refresh.")
       setLoading(false)
       return null
     }
 
     const chapterNumber = Number(verseKey.split(":")[0] ?? "1")
-    const chapterData = await fetchChapter(chapterNumber)
+    const chapterData = await fetchWithRetry(() => fetchChapter(chapterNumber))
 
     setVerse(verseData)
     setChapter(chapterData)
     setAudio(audioData)
+    setTafsir(null) // reset tafsir when verse changes
 
     if (typeof window !== "undefined") {
+      // Clear any stale tafsir cache when verse key changes
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith(TAFSIR_CACHE_PREFIX)) {
+          localStorage.removeItem(key)
+        }
+      })
+    }
+
+    if (typeof window !== "undefined" && !isOverride) {
       localStorage.setItem(
         cacheKey,
         JSON.stringify({
@@ -101,13 +112,13 @@ export function useAyah() {
 
     setLoading(false)
     return verseData
-  }, [dateKey, verseKey])
+  }, [dateKey, verseKey, overrideVerseKey])
 
   const fetchTafsirForToday = useCallback(async () => {
     if (tafsir) return tafsir
 
     setTafsirLoading(true)
-    const cacheKey = `${TAFSIR_CACHE_PREFIX}:${dateKey}`
+    const cacheKey = `${TAFSIR_CACHE_PREFIX}:${verseKey}`
 
     if (typeof window !== "undefined") {
       const cached = localStorage.getItem(cacheKey)
@@ -123,10 +134,13 @@ export function useAyah() {
       }
     }
 
-    // fetchTafsir now calls /api/content/tafsir server route
-    const tafsirData = await fetchTafsir(verseKey)
+    // Try tafsir 169 first, fall back to 168
+    let tafsirData = await fetchWithRetry(() => fetchTafsir(verseKey, 169))
     if (!tafsirData) {
-      setError("We couldn't load the tafsir right now.")
+      tafsirData = await fetchWithRetry(() => fetchTafsir(verseKey, 168))
+    }
+
+    if (!tafsirData) {
       setTafsirLoading(false)
       return null
     }
@@ -137,13 +151,12 @@ export function useAyah() {
     }
     setTafsirLoading(false)
     return tafsirData
-  }, [dateKey, tafsir, verseKey])
+  }, [verseKey, tafsir])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void fetchVerse()
     }, 0)
-
     return () => window.clearTimeout(timeoutId)
   }, [fetchVerse])
 

@@ -39,17 +39,12 @@ export async function POST(request: NextRequest) {
       userId: userInfo.sub,
       grantedScope: tokens.scope ?? null,
       access_token: tokens.access_token,
-    });
+    }
+  );
 
     // Set secure HTTP-only cookie
-    response.cookies.set({
-      name: "qf_user_id",
-      value: userInfo.sub,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-    });
+  // In src/app/api/auth/callback/route.ts, after getting userInfo:
+response.cookies.set({ name: "qf_username", value: userInfo.name, httpOnly: false, sameSite: "lax", maxAge: 60*60*24*30 })
 
     return response;
   } catch (error) {

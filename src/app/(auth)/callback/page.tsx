@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { session } from '@/lib/session';
 
-export default function CallbackPage() {
+function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -139,4 +139,29 @@ export default function CallbackPage() {
   }
 
   return null;
+}
+
+function LoadingState() {
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <div className="glass-card w-full max-w-[440px] space-y-4 p-6 text-center">
+        <p className="muted-kicker">Secure Sign In</p>
+        <h1 className="text-3xl font-semibold text-[var(--gold)]">Signing you in...</h1>
+        <p className="section-subcopy">Please wait while we reconnect your session and study space.</p>
+        <div className="mx-auto flex w-fit gap-2">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--gold)]" />
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--gold)] [animation-delay:120ms]" />
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--gold)] [animation-delay:240ms]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function CallbackPage() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <CallbackContent />
+    </Suspense>
+  );
 }

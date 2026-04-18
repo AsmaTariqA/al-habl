@@ -1,73 +1,116 @@
 ﻿"use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { getClientAccessToken } from "@/lib/client-access"
-import { createPost, getRoomPosts } from "@/lib/qf-api"
-import { getTodayVerseKey } from "@/lib/circle-constants"
-import type { Post } from "@/types/circle"
+import { useEffect, useState, useRef, useCallback } from "react"
+import { createClient } from "@supabase/supabase-js"
+import { session } from "@/lib/session"
+import {  getUserProfile } from "@/lib/qf-api"
+import type {  UserProfile } from "@/types/circle"
 
-function sortMessages(items: Post[]) {
-  return [...items].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export function useChat(roomId?: string | null) {
-  const [messages, setMessages] = useState<Post[]>([])
+  const [messages, setMessages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const roomIdRef = useRef<string | null>(roomId ?? null)
 
-  const refreshMessages = useCallback(async () => {
-    const token = await getClientAccessToken()
-    const currentRoom = roomIdRef.current
-    if (!token || !currentRoom) return
+    const [profile, setProfile] = useState<UserProfile | null>(null)
 
-    const data = await getRoomPosts(token, currentRoom)
-    setMessages(sortMessages(data ?? []))
+  const roomRef = useRef(roomId)
+
+  useEffect(() => {
+    roomRef.current = roomId
+  }, [roomId])
+
+  // 🔹 Load messages
+  const fetchMessages = useCallback(async () => {
+    if (!roomRef.current) return
+
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("room_id", roomRef.current)
+      .order("created_at", { ascending: true })
+
+    if (!error) setMessages(data || [])
     setLoading(false)
   }, [])
 
+  // 🔹 Send message
   const sendMessage = useCallback(async (body: string) => {
-    const token = await getClientAccessToken()
-    const currentRoom = roomIdRef.current
-    if (!token || !currentRoom) return null
+    if (!roomRef.current) return
+    if (body.trim().length < 2) return
 
-    setSending(true)
-    setError(null)
+    const userId = session.getUserId()
 
-    const verseKey = getTodayVerseKey()
-    const created = await createPost(token, body, Number(currentRoom), verseKey, "relevance")
-    if (!created) {
-      setError("We couldn't send this message.")
-      setSending(false)
-      return null
+    const newMsg = {
+      room_id: roomRef.current,
+      user_id: userId,
+      username: "You",
+      body: body.trim(),
     }
 
-    setMessages((current) => sortMessages([...current, created]))
+    setSending(true)
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert([newMsg])
+      .select()
+      .single()
+
+    if (error) {
+      setError("Failed to send message")
+      setSending(false)
+      return
+    }
+
+    setMessages((prev) => [...prev, data])
     setSending(false)
-    return created
   }, [])
 
+  // 🔹 Realtime subscription
   useEffect(() => {
-    roomIdRef.current = roomId ?? null
     if (!roomId) return
 
-    const timeoutId = window.setTimeout(() => {
-      void refreshMessages()
-    }, 0)
+    fetchMessages()
 
-    return () => window.clearTimeout(timeoutId)
-  }, [roomId, refreshMessages])
+    const channel = supabase
+  .channel(`chat-${roomId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `room_id=eq.${roomId}`,
+        },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new])
+        }
+      )
+      .subscribe()
 
-  useEffect(() => {
-    if (!roomIdRef.current) return
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [roomId, fetchMessages])
 
-    const intervalId = window.setInterval(() => {
-      void refreshMessages()
-    }, 20_000)
+  const deleteMessage = useCallback(async (id: string) => {
+  const { error } = await supabase
+    .from("messages")
+    .delete()
+    .eq("id", id)
 
-    return () => window.clearInterval(intervalId)
-  }, [refreshMessages])
+  if (error) {
+    setError("Failed to delete message")
+    return
+  }
 
-  return { messages, sendMessage, sending, loading, error }
+  setMessages((prev) => prev.filter((msg) => msg.id !== id))
+}, [])
+
+  return { messages, sendMessage, loading, sending, error , deleteMessage}
 }
