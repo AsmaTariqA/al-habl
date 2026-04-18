@@ -1,14 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
-  const { userId } = await request.json()
+  const cookieStore =  await cookies()
+
+  // Read userId from httpOnly cookie (server can read it, client JS cannot)
+  const userId = cookieStore.get('qf_user_id')?.value
+
+  // Fall back to body for backwards compat
+  if (!userId) {
+    const body = await request.json().catch(() => ({}))
+    if (!body.userId) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
+  }
+
+  const resolvedUserId = userId ?? (await request.json().catch(() => ({}))).userId
 
   const supabase = getSupabaseAdmin()
   const { data: session } = await supabase
     .from('user_sessions')
     .select('*')
-    .eq('qf_user_id', userId)
+    .eq('qf_user_id', resolvedUserId)
     .single()
 
   if (!session) {
@@ -18,6 +32,7 @@ export async function POST(request: NextRequest) {
   const expiresAt = new Date(session.expires_at)
   const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000)
 
+  // Token still valid
   if (expiresAt > fiveMinFromNow) {
     return NextResponse.json({
       access_token: session.access_token,
@@ -25,6 +40,7 @@ export async function POST(request: NextRequest) {
     })
   }
 
+  // Token expired — refresh it
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_QF_AUTH_URL}/oauth2/token`,
     {
@@ -40,7 +56,9 @@ export async function POST(request: NextRequest) {
   )
 
   if (!res.ok) {
-    return NextResponse.json({ error: 'Session expired' }, { status: 401 })
+    const errBody = await res.text()
+    console.error('QF token refresh failed:', res.status, errBody)
+    return NextResponse.json({ error: 'Session expired, please log in again' }, { status: 401 })
   }
 
   const tokens = await res.json()
@@ -50,7 +68,10 @@ export async function POST(request: NextRequest) {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token ?? session.refresh_token,
     expires_at: newExpiresAt.toISOString(),
-  }).eq('qf_user_id', userId)
+  }).eq('qf_user_id', resolvedUserId)
 
-  return NextResponse.json({ access_token: tokens.access_token, expiresIn: tokens.expires_in })
+  return NextResponse.json({
+    access_token: tokens.access_token,
+    expiresIn: tokens.expires_in,
+  })
 }

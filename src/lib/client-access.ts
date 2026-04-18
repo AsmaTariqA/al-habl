@@ -3,27 +3,17 @@
 let cachedToken: string | null = null
 let tokenExpiresAt: number = 0
 
-function getUserIdFromCookie(): string | null {
-  // qf_user_id is set as httpOnly so JS can't read it directly.
-  // We need a readable cookie. See callback fix below.
-  if (typeof document === "undefined") return null
-  const match = document.cookie
-    .match(/(?:^|;\s*)qf_user_id_pub=([^;]+)/)
-  return match ? decodeURIComponent(match[1]) : null
-}
-
 export async function getClientAccessToken(): Promise<string | null> {
   if (cachedToken && Date.now() < tokenExpiresAt - 60_000) {
     return cachedToken
   }
 
-  const userId = getUserIdFromCookie()
-  if (!userId) return null
-
+  // Don't send userId — the server reads qf_user_id httpOnly cookie directly
   const res = await fetch('/api/auth/refresh', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({}),
+    credentials: 'include', // ensures cookies are sent
   })
 
   if (!res.ok) return null
