@@ -444,7 +444,7 @@ export async function createPost(accessToken: string, body: string, roomId: stri
       tags: [lens],
       mentions: [],
       postAsAuthorId: "",
-      publishedAt: new Date().toISOString
+      publishedAt: new Date().toISOString()
     },
   }
 
