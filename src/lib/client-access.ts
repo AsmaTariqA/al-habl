@@ -3,13 +3,22 @@
 let cachedToken: string | null = null
 let tokenExpiresAt: number = 0
 
+function getUserIdFromCookie(): string | null {
+  // qf_user_id is set as httpOnly so JS can't read it directly.
+  // We need a readable cookie. See callback fix below.
+  if (typeof document === "undefined") return null
+  const match = document.cookie
+    .match(/(?:^|;\s*)qf_user_id_pub=([^;]+)/)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
 export async function getClientAccessToken(): Promise<string | null> {
   if (cachedToken && Date.now() < tokenExpiresAt - 60_000) {
     return cachedToken
   }
 
-  const userId = localStorage.getItem('qf_user_id')
-  if (!userId) return null  // ← return null, don't redirect
+  const userId = getUserIdFromCookie()
+  if (!userId) return null
 
   const res = await fetch('/api/auth/refresh', {
     method: 'POST',
@@ -17,11 +26,7 @@ export async function getClientAccessToken(): Promise<string | null> {
     body: JSON.stringify({ userId }),
   })
 
-  if (!res.ok) {
-    // Don't clear localStorage here — just return null
-    // Let the page decide what to do
-    return null
-  }
+  if (!res.ok) return null
 
   const { access_token, expiresIn } = await res.json()
   if (!access_token) return null
