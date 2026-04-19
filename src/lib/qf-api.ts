@@ -22,7 +22,12 @@ import { LENSES } from "@/lib/circle-constants"
 import { publicConfig } from "@/lib/config"
 
 const CONTENT_BASE = `${publicConfig.QF_API_URL}/content/api/v4`
-const USER_BASE = `${publicConfig.QF_API_URL}/quran-reflect/v1`   // rooms, posts, comments, profile
+// Replace this:
+
+// With this:
+const USER_BASE = typeof window === "undefined"
+  ? `${publicConfig.QF_API_URL}/quran-reflect/v1`
+  : `/api/qf`  // rooms, posts, comments, profile
 const AUTH_BASE = `${publicConfig.QF_API_URL}/auth/v1`             // bookmarks, notes, streaks, goals
 const CLIENT_ID = publicConfig.QF_CLIENT_ID
 
@@ -618,7 +623,7 @@ export async function getAllSurahs(): Promise<LegacySurah[]> {
 
 
 export async function deletePost(accessToken: string, postId: string) {
-  const response = await fetch(`${USER_BASE}/posts/${postId}`, {
+  const response = await fetch(`${typeof window === "undefined" ? `${publicConfig.QF_API_URL}/quran-reflect/v1` : "/api/qf"}/posts/${postId}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json", "Accept": "application/json", "x-auth-token": accessToken, "x-client-id": CLIENT_ID },
   })

@@ -1,12 +1,4 @@
-Here's the exact prompt for Claude Code:
-
-Fix: Route all client-side QF user API calls through a Next.js proxy
-Root cause confirmed: The Quran Foundation API (apis.quran.foundation/quran-reflect/v1/*) returns 500 when called directly from the browser. Server-side calls with the same token and headers return 200. This is a CORS/origin block on QF's end — they only allow server-to-server requests for user API endpoints.
-Two changes needed:
-
-Change 1 — Create src/app/api/qf/[...path]/route.ts:
-This proxy intercepts all client-side calls to /api/qf/*, reads the user's token from Supabase using the qf_user_id httpOnly cookie, and forwards the request to QF server-side.
-tsimport { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { getSupabaseAdmin } from "@/lib/supabase"
 
@@ -91,33 +83,3 @@ export const POST = handler
 export const PUT = handler
 export const DELETE = handler
 export const PATCH = handler
-
-Change 2 — Edit src/lib/qf-api.ts:
-Find this line:
-tsconst USER_BASE = `${publicConfig.QF_API_URL}/quran-reflect/v1`   // rooms, posts, comments, profile
-Replace with:
-tsconst USER_BASE = typeof window === "undefined"
-  ? `${publicConfig.QF_API_URL}/quran-reflect/v1`  // server-side: direct to QF
-  : `/api/qf`                                        // client-side: through proxy
-Also find deletePost function which uses a raw hardcoded URL — update it to use the same pattern:
-tsexport async function deletePost(accessToken: string, postId: string) {
-  const base = typeof window === "undefined"
-    ? `${publicConfig.QF_API_URL}/quran-reflect/v1`
-    : "/api/qf"
-  const response = await fetch(`${base}/posts/${postId}`, {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "x-auth-token": accessToken,
-      "x-client-id": CLIENT_ID,
-    },
-  })
-  return response.ok
-}
-
-What NOT to change:
-
-AUTH_BASE (/auth/v1/) — bookmarks, notes, streaks, goals. Test if these also need proxying after the main fix. If they return 500 from browser too, create a second proxy at app/api/qf-auth/[...path]/route.ts with AUTH_BASE pointing to /api/qf-auth client-side.
-CONTENT_BASE (/content/api/v4/) — already goes through Next.js API routes, working fine.
-getClientAccessToken in lib/client-access.ts — leave as is, the proxy handles auth independently via the httpOnly cookie.
