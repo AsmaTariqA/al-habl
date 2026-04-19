@@ -42,14 +42,14 @@ export async function POST(request: NextRequest) {
     });
 
     // Set secure HTTP-only cookie
-    response.cookies.set({
-      name: "qf_user_id",
-      value: userInfo.sub,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-    });
+  response.cookies.set({
+  name: "qf_token",
+  value: tokens.access_token,
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  maxAge: 60 * 60 * 24 * 7,
+})
 
     return response;
   } catch (error) {
