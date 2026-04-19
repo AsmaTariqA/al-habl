@@ -17,9 +17,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ room: null, circles: circles ?? [], authenticated: false })
   }
 
-  const { rooms } = await getUserRoomsResult(auth.accessToken)
+  const { rooms, error } = await getUserRoomsResult(auth.accessToken)
+  
+  console.log("[GET /api/circle] userId:", auth.userId, "rooms:", rooms.length, "error:", error)
+
   const alHablIds = new Set((circles ?? []).map((c: { id: string }) => c.id))
   const myRoom = rooms.find((r) => alHablIds.has(r.id))
+
+  console.log("[GET /api/circle] alHablIds:", [...alHablIds], "myRoom:", myRoom?.id ?? "none")
 
   if (myRoom) {
     return NextResponse.json({ room: myRoom, circles: circles ?? [], authenticated: true })
