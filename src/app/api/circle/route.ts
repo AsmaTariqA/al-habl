@@ -6,7 +6,6 @@ import { getSupabaseAdmin } from "@/lib/supabase"
 export async function GET(request: NextRequest) {
   const auth = await getRequestAccessToken(request)
 
-  // Return Al-Habl circles from Supabase — no auth needed to browse
   const supabase = getSupabaseAdmin()
   const { data: circles } = await supabase
     .from("al_habl_circles")
@@ -14,17 +13,19 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(50)
 
-  // Also check if this user already has a room
-  if (auth) {
-    const { rooms } = await getUserRoomsResult(auth.accessToken)
-    const alHablIds = new Set((circles ?? []).map((c: { id: string }) => c.id))
-    const myRoom = rooms.find((r) => alHablIds.has(r.id))
-    if (myRoom) {
-      return NextResponse.json({ room: myRoom, circles: circles ?? [] })
-    }
+  if (!auth) {
+    return NextResponse.json({ room: null, circles: circles ?? [], authenticated: false })
   }
 
-  return NextResponse.json({ room: null, circles: circles ?? [] })
+  const { rooms } = await getUserRoomsResult(auth.accessToken)
+  const alHablIds = new Set((circles ?? []).map((c: { id: string }) => c.id))
+  const myRoom = rooms.find((r) => alHablIds.has(r.id))
+
+  if (myRoom) {
+    return NextResponse.json({ room: myRoom, circles: circles ?? [], authenticated: true })
+  }
+
+  return NextResponse.json({ room: null, circles: circles ?? [], authenticated: true })
 }
 
 export async function POST(request: NextRequest) {
@@ -43,7 +44,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to create circle." }, { status: 500 })
   }
 
-  // Store in Supabase so other Al-Habl users can find and join it
   const supabase = getSupabaseAdmin()
   await supabase.from("al_habl_circles").upsert({
     id: room.id,

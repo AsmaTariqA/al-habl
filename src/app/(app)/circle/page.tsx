@@ -124,15 +124,31 @@ export default function CirclePage() {
   const reflectedCount = uniqueMembers.filter((m) => m.has_reflected_today).length
   const selectedLensPrompts = LENS_PROMPTS[selectedLens]
   const featuredPrompt = selectedLensPrompts[(dayNumber - 1) % selectedLensPrompts.length]
+useEffect(() => {
+  if (roomId) return
 
-  useEffect(() => {
-    if (roomId) return
-    const existing = session.getRoomId(); if (existing) return
-    fetch("/api/circle").then(r => r.json()).then((data: { room?: { id: string } | null }) => {
-      if (!data.room?.id) { router.replace("/onboarding"); return }
-      session.setRoomId(data.room.id); setRoomId(data.room.id)
-    }).catch(() => router.replace("/onboarding"))
-  }, [roomId, router])
+  const existing = session.getRoomId()
+  if (existing) { setRoomId(existing); return }
+
+  fetch("/api/circle")
+    .then(r => {
+      if (!r.ok) return null
+      return r.json()
+    })
+    .then((data: { room?: { id: string } | null } | null) => {
+      if (!data) return // fetch failed — stay on page, don't redirect
+      if (data.room?.id) {
+        session.setRoomId(data.room.id)
+        setRoomId(data.room.id)
+        return
+      }
+      // Only redirect if we got a valid response but genuinely no room
+      router.replace("/onboarding")
+    })
+    .catch(() => {
+      // Network error — don't redirect, user is logged in
+    })
+}, [roomId, router])
 
   useEffect(() => {
     getClientAccessToken().then(async (token) => {
