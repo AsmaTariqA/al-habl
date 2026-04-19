@@ -70,7 +70,7 @@ function CallbackContent() {
         localStorage.setItem('qf_user_id', data.userId);
 
 
-        router.push('/circle');
+     window.location.href = '/circle';
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {

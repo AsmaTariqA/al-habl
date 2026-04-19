@@ -14,7 +14,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "missing_code_or_verifier" }, { status: 400 });
     }
 
-    // Exchange code for tokens
     const tokens = await exchangeCodeForToken(code, codeVerifier);
     console.info("QF token exchange succeeded", {
       scope: tokens.scope ?? null,
@@ -22,10 +21,8 @@ export async function POST(request: NextRequest) {
       hasRefreshToken: Boolean(tokens.refresh_token),
     });
 
-    // Get user info
     const userInfo = await getUserInfo(tokens.access_token, tokens.id_token);
 
-    // Store session in Supabase
     await storeUserSession(
       userInfo.sub,
       tokens.access_token,
@@ -33,7 +30,8 @@ export async function POST(request: NextRequest) {
       tokens.expires_in
     );
 
-    // Create response with user redirected to /circle
+    const isProduction = process.env.NODE_ENV === "production"
+
     const response = NextResponse.json({
       success: true,
       userId: userInfo.sub,
@@ -41,15 +39,25 @@ export async function POST(request: NextRequest) {
       access_token: tokens.access_token,
     });
 
-    // Set secure HTTP-only cookie
-  response.cookies.set({
-  name: "qf_token",
-  value: tokens.access_token,
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
-  maxAge: 60 * 60 * 24 * 7,
-})
+    // Required by middleware to allow access to /circle
+    response.cookies.set({
+      name: "qf_user_id",
+      value: userInfo.sub,
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+
+    // Used by proxy route to get token server-side
+    response.cookies.set({
+      name: "qf_token",
+      value: tokens.access_token,
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+    });
 
     return response;
   } catch (error) {
