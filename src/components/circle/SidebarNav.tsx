@@ -4,7 +4,11 @@
 // Desktop sidebar navigation — replaces BottomNavigation on lg+ screens
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { useState } from "react"
+import { getClientAccessToken } from "@/lib/client-access"
+import { leaveRoom } from "@/lib/qf-api"
+import { session } from "@/lib/session"
 
 const items = [
   {
@@ -68,6 +72,9 @@ const items = [
 
 export function SidebarNav() {
   const pathname = usePathname()
+  const router = useRouter()
+  const [leaving, setLeaving] = useState(false)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
 
   async function handleLogout() {
     const confirmed = window.confirm("Are you sure you want to log out?")
@@ -75,6 +82,40 @@ export function SidebarNav() {
     await fetch("/api/auth/logout", { method: "POST" })
     localStorage.clear()
     window.location.href = "/auth/login"
+  }
+
+  async function handleLeaveCircle() {
+    const roomId = session.getRoomId()
+    if (!roomId) {
+      session.clearRoomId()
+      router.replace("/onboarding")
+      return
+    }
+
+    const confirmed = window.confirm(
+      "Leave this circle? You will need to join again from onboarding if you want to come back."
+    )
+    if (!confirmed) return
+
+    setLeaving(true)
+    setLeaveError(null)
+
+    const token = await getClientAccessToken().catch(() => null)
+    if (!token) {
+      setLeaveError("We couldn't verify your session. Please try again.")
+      setLeaving(false)
+      return
+    }
+
+    const left = await leaveRoom(token, roomId).catch(() => false)
+    if (!left) {
+      setLeaveError("Leaving the circle didn't work. Please try again.")
+      setLeaving(false)
+      return
+    }
+
+    session.clearRoomId()
+    router.replace("/onboarding")
   }
 
   return (
@@ -120,6 +161,51 @@ export function SidebarNav() {
       })}
 
       <div style={{ height: "1px", background: "var(--divider)", margin: "0.5rem 0" }} />
+
+      <button
+        type="button"
+        onClick={() => void handleLeaveCircle()}
+        disabled={leaving}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.65rem",
+          padding: "0.55rem 0.75rem",
+          borderRadius: "var(--radius-md)",
+          fontSize: "0.875rem",
+          fontWeight: 400,
+          background: "transparent",
+          border: "1px solid transparent",
+          color: leaving ? "#fca5a5" : "#f87171",
+          cursor: leaving ? "wait" : "pointer",
+          width: "100%",
+          textAlign: "left",
+          transition: "background 0.15s ease, color 0.15s ease",
+          opacity: leaving ? 0.8 : 1,
+        }}
+        onMouseEnter={e => {
+          if (leaving) return
+          ;(e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.06)"
+          ;(e.currentTarget as HTMLButtonElement).style.color = "#f87171"
+        }}
+        onMouseLeave={e => {
+          ;(e.currentTarget as HTMLButtonElement).style.background = "transparent"
+          ;(e.currentTarget as HTMLButtonElement).style.color = leaving ? "#fca5a5" : "#f87171"
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M15 17l5-5-5-5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M20 12H9" strokeLinecap="round" />
+          <path d="M9 19H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h3" strokeLinecap="round" />
+        </svg>
+        <span>{leaving ? "Leaving circle..." : "Leave Circle"}</span>
+      </button>
+
+      {leaveError && (
+        <p style={{ padding: "0 0.75rem", fontSize: "0.75rem", lineHeight: 1.5, color: "#fca5a5" }}>
+          {leaveError}
+        </p>
+      )}
 
       <button
         type="button"

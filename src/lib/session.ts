@@ -25,11 +25,15 @@ export const session = {
     localStorage.setItem("qf_room_id", id)
     setCookie(ROOM_COOKIE_NAME, id)
   },
+  clearRoomId(): void {
+    if (typeof window === "undefined") return
+    localStorage.removeItem("qf_room_id")
+    clearCookie(ROOM_COOKIE_NAME)
+  },
   clear(): void {
     if (typeof window === "undefined") return
     localStorage.removeItem("qf_user_id")
-    localStorage.removeItem("qf_room_id")
     clearCookie(USER_COOKIE_NAME)
-    clearCookie(ROOM_COOKIE_NAME)
+    this.clearRoomId()
   },
 }

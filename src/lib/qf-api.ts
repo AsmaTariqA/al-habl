@@ -28,7 +28,9 @@ const CONTENT_BASE = `${publicConfig.QF_API_URL}/content/api/v4`
 const USER_BASE = typeof window === "undefined"
   ? `${publicConfig.QF_API_URL}/quran-reflect/v1`
   : `/api/qf`  // rooms, posts, comments, profile
-const AUTH_BASE = `${publicConfig.QF_API_URL}/auth/v1`             // bookmarks, notes, streaks, goals
+const AUTH_BASE = typeof window === "undefined"
+  ? `${publicConfig.QF_API_URL}/auth/v1`
+  : `/api/qf-auth` // bookmarks, notes, streaks, goals, activity days
 const CLIENT_ID = publicConfig.QF_CLIENT_ID
 
 export interface QfApiError {
@@ -42,6 +44,12 @@ export interface QfApiError {
 interface QfFetchResult<T> {
   data: T | null
   error: QfApiError | null
+}
+
+interface PostAuthorFallback {
+  userId?: string
+  username?: string
+  avatar?: string
 }
 
 function getAuthHeaders(accessToken?: string) {
@@ -124,6 +132,58 @@ function readNumber(value: unknown, fallback = 0) {
 
 function readBoolean(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback
+}
+
+function readTrimmedString(value: unknown) {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function readIdentifier(...values: unknown[]) {
+  for (const value of values) {
+    const text = readTrimmedString(value)
+    if (text) return text
+    if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  }
+  return ""
+}
+
+function combineNameParts(...values: unknown[]) {
+  return values.map((value) => readTrimmedString(value)).filter(Boolean).join(" ")
+}
+
+function readDisplayName(
+  candidates: unknown[],
+  invalidIdentifiers: unknown[],
+  fallback: string,
+) {
+  const blocked = new Set(
+    invalidIdentifiers
+      .map((value) => readIdentifier(value))
+      .filter(Boolean),
+  )
+
+  for (const candidate of candidates) {
+    const text = readTrimmedString(candidate)
+    if (text && !blocked.has(text)) return text
+  }
+
+  return fallback
+}
+
+function getUserTimezone() {
+  if (typeof window === "undefined") return "UTC"
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+}
+
+function getRecentDateRange(days = 30) {
+  const to = new Date()
+  const from = new Date()
+  from.setDate(from.getDate() - (days - 1))
+
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  }
 }
 
 function pickPayload(source: unknown, keys: string[]) {
@@ -280,9 +340,19 @@ function normalizeNotes(source: unknown): Note[] {
 function normalizeProfile(source: unknown): UserProfile | null {
   const record = asRecord(pickPayload(source, ["user", "profile", "data"]))
   if (!record) return null
+  const userId = readIdentifier(record.user_id, record.id)
   return {
-    user_id: readString(record.user_id) || readString(record.id) || String(readNumber(record.id)),
-    username: readString(record.username) || readString(record.name),
+    user_id: userId,
+    username: readDisplayName(
+      [
+        record.username,
+        record.name,
+        record.displayName,
+        combineNameParts(record.firstName, record.lastName),
+      ],
+      [userId],
+      "Member",
+    ),
     avatar: readString(record.avatar) || readString(asRecord(record.avatarUrl)?.small) || readString(asRecord(record.avatarUrl)?.medium) || undefined,
     quran_account_tag: readString(record.quran_account_tag) || readString(record.email) || undefined,
   }
@@ -302,8 +372,28 @@ function normalizeActivityDays(source: unknown): ActivityDay[] {
   const payload = pickPayload(source, ["activity_days", "days", "data"])
   return asArray(payload).map((entry) => {
     const record = asRecord(entry)
-    return { date: readString(record?.date), active: readBoolean(record?.active, true) }
+    return {
+      date: readString(record?.date),
+      active: readBoolean(
+        record?.active,
+        readNumber(record?.progress) > 0 ||
+          readNumber(record?.secondsRead) > 0 ||
+          asArray(record?.ranges).length > 0 ||
+          Boolean(readString(record?.date)),
+      ),
+    }
   })
+}
+
+function normalizeStreakEntry(source: unknown) {
+  const record = asRecord(source)
+  if (!record) return null
+  return {
+    days: readNumber(record.days),
+    status: readString(record.status),
+    startDate: readString(record.startDate),
+    endDate: readString(record.endDate),
+  }
 }
 
 function normalizeGoals(source: unknown): Goal[] {
@@ -437,7 +527,14 @@ export async function getRoomPosts(accessToken: string, roomId: string) {
   }
 }
 
-export async function createPost(accessToken: string, body: string, roomId: string | number, verseKey: string, lens: string) {
+export async function createPost(
+  accessToken: string,
+  body: string,
+  roomId: string | number,
+  verseKey: string,
+  lens: string,
+  authorFallback?: PostAuthorFallback,
+) {
   const [chapterId, verseFrom] = verseKey.split(":").map(Number)
   const payload = {
     post: {
@@ -459,7 +556,10 @@ export async function createPost(accessToken: string, body: string, roomId: stri
     return null
   }
 
-  return normalizePost(pickPayload(result.data, ["post", "data"]) ?? result.data)
+  return normalizePost(
+    pickPayload(result.data, ["post", "data"]) ?? result.data,
+    authorFallback,
+  )
 }
 
 export async function likePost(accessToken: string, postId: string) {
@@ -481,13 +581,85 @@ export async function createComment(accessToken: string, postId: string, body: s
 
 
 export async function getStreaks(accessToken: string) {
-  const data = await safeFetch<unknown>("/streaks?first=1&status=ACTIVE&type=QURAN", {}, accessToken, true, AUTH_BASE)
-  return normalizeStreak(data)
+  const timezoneHeader = { "x-timezone": getUserTimezone() }
+
+  const [activeData, longestData] = await Promise.all([
+    safeFetch<unknown>(
+      "/streaks?first=1&status=ACTIVE&type=QURAN",
+      { headers: timezoneHeader },
+      accessToken,
+      true,
+      AUTH_BASE,
+    ),
+    safeFetch<unknown>(
+      "/streaks?first=1&type=QURAN&orderBy=days&sortOrder=desc",
+      { headers: timezoneHeader },
+      accessToken,
+      true,
+      AUTH_BASE,
+    ),
+  ])
+
+  const activeStreak = normalizeStreakEntry(asArray(asRecord(activeData)?.data)[0])
+  const longestStreak = normalizeStreakEntry(asArray(asRecord(longestData)?.data)[0])
+
+  if (!activeStreak && !longestStreak) {
+    return normalizeStreak(activeData) ?? normalizeStreak(longestData)
+  }
+
+  return {
+    current_streak: activeStreak?.days ?? 0,
+    max_streak: longestStreak?.days ?? activeStreak?.days ?? 0,
+    last_activity: activeStreak?.endDate ?? longestStreak?.endDate ?? "",
+  }
 }
 
 export async function getActivityDays(accessToken: string) {
-  const data = await safeFetch<unknown>("/activity-days?first=20", {}, accessToken, true, AUTH_BASE)
+  const { from, to } = getRecentDateRange()
+  const query = new URLSearchParams({
+    from,
+    to,
+    type: "QURAN",
+    dateOrderBy: "desc",
+  })
+  const data = await safeFetch<unknown>(
+    `/activity-days?${query.toString()}`,
+    { headers: { "x-timezone": getUserTimezone() } },
+    accessToken,
+    true,
+    AUTH_BASE,
+  )
   return normalizeActivityDays(data)
+}
+
+export async function logActivityDay(
+  accessToken: string,
+  date: string,
+  verseKey: string,
+  seconds = 1,
+) {
+  const range = `${verseKey}-${verseKey}`
+  const payload = {
+    date,
+    type: "QURAN",
+    mushafId: 1,
+    seconds: Math.max(seconds, 1),
+    ranges: [range],
+  }
+
+  return Boolean(
+    await safeFetch<unknown>(
+      "/activity-days",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+        headers: { "x-timezone": getUserTimezone() },
+      },
+      accessToken,
+      true,
+      AUTH_BASE,
+    )
+  )
 }
 
 
@@ -647,7 +819,7 @@ export async function getGoals(accessToken: string) {
   return normalizeGoals(data ?? { goals: [] })
 }
 
-function normalizePost(source: unknown): Post | null {
+function normalizePost(source: unknown, fallbackAuthor?: PostAuthorFallback): Post | null {
   const record = asRecord(source)
   if (!record) return null
   const tags = asArray(record.tags).map((tag) => {
@@ -663,24 +835,39 @@ function normalizePost(source: unknown): Post | null {
 
   // QF returns author as nested object
   const author = asRecord(record.author)
-  const username =
-    readString(record.username) ||
-    readString(record.name) ||
-    readString(author?.username) ||
-    readString(author?.displayName) ||
-    [readString(author?.firstName), readString(author?.lastName)].filter(Boolean).join(" ") ||
-    "Anonymous"
+  const userId = readIdentifier(
+    record.user_id,
+    record.authorId,
+    record.userId,
+    author?.user_id,
+    author?.id,
+    fallbackAuthor?.userId,
+    record.id,
+  )
+  const username = readDisplayName(
+    [
+      record.username,
+      record.name,
+      author?.username,
+      author?.displayName,
+      combineNameParts(author?.firstName, author?.lastName),
+      fallbackAuthor?.username,
+    ],
+    [userId],
+    fallbackAuthor?.username ?? "Anonymous",
+  )
 
   const avatar =
     readString(record.avatar) ||
     readString(asRecord(record.avatarUrls)?.small) ||
     readString(asRecord(author?.avatarUrls)?.small) ||
+    fallbackAuthor?.avatar ||
     undefined
 
   return {
-    id: readString(record.id) || String(readNumber(record.id)),
-    room_id: readString(record.room_id) || String(readNumber(record.roomId)),
-    user_id: readString(record.user_id) || readString(record.authorId) || String(readNumber(record.userId)),
+    id: readIdentifier(record.id),
+    room_id: readIdentifier(record.room_id, record.roomId),
+    user_id: userId,
     username,
     avatar,
     body: readString(record.body),
@@ -704,14 +891,19 @@ function normalizePosts(source: unknown): Post[] {
 function normalizeMember(source: unknown): RoomMember | null {
   const record = asRecord(source)
   if (!record) return null
-  const username =
-    readString(record.username) ||
-    readString(record.name) ||
-    readString(record.displayName) ||
-    [readString(record.firstName), readString(record.lastName)].filter(Boolean).join(" ") ||
-    "Member"
+  const userId = readIdentifier(record.user_id, record.id)
+  const username = readDisplayName(
+    [
+      record.username,
+      record.name,
+      record.displayName,
+      combineNameParts(record.firstName, record.lastName),
+    ],
+    [userId],
+    "Member",
+  )
   return {
-    user_id: readString(record.user_id) || readString(record.id) || String(readNumber(record.id)),
+    user_id: userId,
     username,
     avatar:
       readString(record.avatar) ||
@@ -727,17 +919,28 @@ function normalizeComment(source: unknown): Comment | null {
   const record = asRecord(source)
   if (!record) return null
   const author = asRecord(record.author)
-  const username =
-    readString(record.username) ||
-    readString(record.name) ||
-    readString(author?.username) ||
-    readString(author?.displayName) ||
-    [readString(author?.firstName), readString(author?.lastName)].filter(Boolean).join(" ") ||
-    "Anonymous"
+  const userId = readIdentifier(
+    record.user_id,
+    record.authorId,
+    record.userId,
+    author?.user_id,
+    author?.id,
+  )
+  const username = readDisplayName(
+    [
+      record.username,
+      record.name,
+      author?.username,
+      author?.displayName,
+      combineNameParts(author?.firstName, author?.lastName),
+    ],
+    [userId],
+    "Anonymous",
+  )
   return {
-    id: readString(record.id),
-    post_id: readString(record.post_id) || readString(record.postId),
-    user_id: readString(record.user_id) || readString(record.authorId),
+    id: readIdentifier(record.id),
+    post_id: readIdentifier(record.post_id, record.postId),
+    user_id: userId,
     username,
     body: readString(record.body),
     created_at: readString(record.created_at) || readString(record.createdAt) || new Date().toISOString(),

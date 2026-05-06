@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AppShell } from "@/components/circle/AppShell"
 import { useAyah } from "@/hooks/useAyah"
@@ -124,6 +124,13 @@ export default function CirclePage() {
   const reflectedCount = uniqueMembers.filter((m) => m.has_reflected_today).length
   const selectedLensPrompts = LENS_PROMPTS[selectedLens]
   const featuredPrompt = selectedLensPrompts[(dayNumber - 1) % selectedLensPrompts.length]
+  const loadStreak = useCallback(async () => {
+    const token = await getClientAccessToken().catch(() => null)
+    if (!token) return
+    const streak = await getStreaks(token).catch(() => null)
+    if (streak?.current_streak == null) return
+    setStreakCount(streak.current_streak)
+  }, [])
 useEffect(() => {
   if (roomId) return
 
@@ -151,12 +158,8 @@ useEffect(() => {
 }, [roomId, router])
 
   useEffect(() => {
-    getClientAccessToken().then(async (token) => {
-      if (!token) return
-      const streak = await getStreaks(token).catch(() => null)
-      if (streak?.current_streak != null) setStreakCount(streak.current_streak)
-    }).catch(() => null)
-  }, [])
+    void loadStreak()
+  }, [loadStreak])
 
   useEffect(() => {
     if (!audio?.url) return
@@ -216,7 +219,12 @@ useEffect(() => {
     const body = composerBody.trim()
     if (body.length < 15) { setActionMessage("Reflection must be at least 15 characters."); return }
     const created = await postReflection(body, selectedLens)
-    if (created) { setComposerBody(""); setSelectedLens(lens); setAiQuestions([]) }
+    if (created) {
+      setComposerBody("")
+      setSelectedLens(lens)
+      setAiQuestions([])
+      await loadStreak()
+    }
   }
 
   async function toggleComments(postId: string) { const next = !commentsOpen[postId]; setCommentsOpen(c => ({ ...c, [postId]: next })); if (next) await loadComments(postId) }
@@ -280,7 +288,10 @@ useEffect(() => {
         {/* Desktop title bar */}
         <div className="hidden lg:flex" style={{ alignItems: 'center', justifyContent: 'space-between', padding: '1.5rem 2rem 0.75rem', gap: '1rem' }}>
           <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.04em', marginBottom: '0.2rem' }}>Today&apos;s Circle</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.04em' }}>Today&apos;s Circle</h1>
+              {room?.name && <span style={{ fontSize: '0.85rem', fontWeight: 500, padding: '0.3rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)' }}>{room.name}</span>}
+            </div>
             <p style={{ fontSize: '0.825rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>Day {dayNumber} · {verseKey}</p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
