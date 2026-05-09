@@ -1,30 +1,36 @@
-"use client"
+"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { createClient } from "@supabase/supabase-js"
-import { getClientAccessToken } from "@/lib/client-access"
-import { getRoomMembers, getUserProfile } from "@/lib/qf-api"
-import { session } from "@/lib/session"
-import type { RoomMember, UserProfile } from "@/types/circle"
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { qfKeys } from "@/lib/qf/queryKeys";
+import { qfMembersQueryFn, qfProfileQueryFn } from "@/lib/qf/queryFns";
+import { session } from "@/lib/session";
+import type { RoomMember, UserProfile } from "@/types/circle";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+);
 
 type ChatMessage = {
-  id: string
-  room_id: string
-  user_id: string
-  username: string
-  body: string
-  created_at: string
-  lens?: string | null
-  [key: string]: unknown
-}
+  id: string;
+  room_id: string;
+  user_id: string;
+  username: string;
+  body: string;
+  created_at: string;
+  lens?: string | null;
+  [key: string]: unknown;
+};
 
 function shouldReplaceUsername(message: ChatMessage) {
-  return !message.username || message.username === "You" || message.username === "Anonymous" || message.username === message.user_id
+  return (
+    !message.username ||
+    message.username === "You" ||
+    message.username === "Anonymous" ||
+    message.username === message.user_id
+  );
 }
 
 function resolveMessageAuthor(
@@ -33,42 +39,57 @@ function resolveMessageAuthor(
   profile: UserProfile | null,
   currentUserId: string | null,
 ) {
-  const member = roomMembers.find((entry) => entry.user_id === message.user_id)
-  const isCurrentUser = Boolean(currentUserId && message.user_id === currentUserId)
-  const resolvedUsername = member?.username ?? (isCurrentUser ? profile?.username : undefined)
+  const member = roomMembers.find((entry) => entry.user_id === message.user_id);
+  const isCurrentUser = Boolean(
+    currentUserId && message.user_id === currentUserId,
+  );
+  const resolvedUsername =
+    member?.username ?? (isCurrentUser ? profile?.username : undefined);
 
   return {
     ...message,
     username: shouldReplaceUsername(message)
-      ? resolvedUsername ?? message.username ?? "Member"
+      ? (resolvedUsername ?? message.username ?? "Member")
       : message.username,
-  }
+  };
 }
 
+const EMPTY_MEMBERS: RoomMember[] = [];
+
 export function useChat(roomId?: string | null) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [members, setMembers] = useState<RoomMember[]>([])
+  const queryClient = useQueryClient();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const roomRef = useRef(roomId)
-  const profileRef = useRef<UserProfile | null>(null)
-  const membersRef = useRef<RoomMember[]>([])
-  const userId = useMemo(() => session.getUserId(), [])
+  const membersRef = useRef<RoomMember[]>([]);
+  const profileRef = useRef<UserProfile | null>(null);
+  const userId = useMemo(() => session.getUserId(), []);
+
+  const enabled = Boolean(roomId);
+
+  const profileQ = useQuery({
+    queryKey: qfKeys.profile(),
+    queryFn: qfProfileQueryFn,
+    staleTime: 120_000,
+    enabled,
+  });
+
+  const membersQ = useQuery({
+    queryKey: qfKeys.members(roomId!),
+    queryFn: () => qfMembersQueryFn(roomId!),
+    staleTime: 60_000,
+    enabled,
+  });
+
+  const profileData = profileQ.data ?? null;
+  const membersData = membersQ.data ?? EMPTY_MEMBERS;
 
   useEffect(() => {
-    roomRef.current = roomId
-  }, [roomId])
-
-  useEffect(() => {
-    profileRef.current = profile
-  }, [profile])
-
-  useEffect(() => {
-    membersRef.current = members
-  }, [members])
+    profileRef.current = profileData;
+    membersRef.current = membersData;
+  }, [profileData, membersData]);
 
   const hydrateMessages = useCallback(
     (
@@ -77,131 +98,119 @@ export function useChat(roomId?: string | null) {
       currentProfile: UserProfile | null = profileRef.current,
     ) => {
       return nextMessages.map((message) =>
-        resolveMessageAuthor(message, roomMembers, currentProfile, userId)
-      )
+        resolveMessageAuthor(message, roomMembers, currentProfile, userId),
+      );
     },
     [userId],
-  )
+  );
 
-  const loadIdentity = useCallback(async () => {
-    const token = await getClientAccessToken().catch(() => null)
-    if (!token) {
-      return {
-        currentProfile: profileRef.current,
-        roomMembers: membersRef.current,
+  /** When circle/members caches warm, rehydrate visible rows. */
+  useEffect(() => {
+    setMessages((cur) =>
+      cur.length ? hydrateMessages(cur, membersData, profileData) : cur,
+    );
+  }, [hydrateMessages, membersData, profileData]);
+
+  const sendMessage = useCallback(
+    async (body: string) => {
+      if (!roomId) return;
+      if (body.trim().length < 2) return;
+
+      const currentUserId = userId ?? session.getUserId();
+      if (!currentUserId) return;
+
+      let roomMembers = membersData;
+      let currentProfile = profileData;
+
+      const member = roomMembers.find(
+        (entry) => entry.user_id === currentUserId,
+      );
+      let username = member?.username ?? currentProfile?.username;
+
+      if (!username) {
+        currentProfile = await queryClient.fetchQuery({
+          queryKey: qfKeys.profile(),
+          queryFn: qfProfileQueryFn,
+        });
+        roomMembers = await queryClient.fetchQuery({
+          queryKey: qfKeys.members(roomId),
+          queryFn: () => qfMembersQueryFn(roomId),
+        });
+        username =
+          roomMembers.find((e) => e.user_id === currentUserId)?.username ??
+          currentProfile?.username ??
+          "Anonymous";
       }
-    }
 
-    const [currentProfile, roomMembers] = await Promise.all([
-      getUserProfile(token).catch(() => null),
-      roomRef.current
-        ? getRoomMembers(token, roomRef.current).catch(() => [])
-        : Promise.resolve(membersRef.current),
-    ])
+      const newMsg = {
+        room_id: roomId,
+        user_id: currentUserId,
+        username: username ?? "Anonymous",
+        body: body.trim(),
+      };
 
-    if (currentProfile) {
-      profileRef.current = currentProfile
-      setProfile(currentProfile)
-    }
+      setSending(true);
+      setError(null);
 
-    membersRef.current = roomMembers ?? []
-    setMembers(roomMembers ?? [])
-    setMessages((current) =>
-      hydrateMessages(current, roomMembers ?? [], currentProfile ?? profileRef.current)
-    )
+      const { data, error } = await supabase
+        .from("messages")
+        .insert([newMsg])
+        .select()
+        .single();
 
-    return {
-      currentProfile: currentProfile ?? profileRef.current,
-      roomMembers: roomMembers ?? membersRef.current,
-    }
-  }, [hydrateMessages])
+      if (error) {
+        setError("Failed to send message");
+        setSending(false);
+        return;
+      }
 
-  useEffect(() => {
-    void loadIdentity()
-  }, [loadIdentity, roomId])
+      if (data) {
+        const createdMessage = hydrateMessages(
+          [data as ChatMessage],
+          roomMembers,
+          currentProfile,
+        )[0];
 
-  const fetchMessages = useCallback(async () => {
-    if (!roomRef.current) return
+        setMessages((prev) => [...prev, createdMessage]);
+      }
 
-    const { currentProfile, roomMembers } = await loadIdentity()
-
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("room_id", roomRef.current)
-      .order("created_at", { ascending: true })
-
-    if (error) {
-      setError("Failed to load messages")
-      setLoading(false)
-      return
-    }
-
-    setMessages(
-      hydrateMessages((data ?? []) as ChatMessage[], roomMembers, currentProfile)
-    )
-    setLoading(false)
-  }, [hydrateMessages, loadIdentity])
-
-  const sendMessage = useCallback(async (body: string) => {
-    if (!roomRef.current) return
-    if (body.trim().length < 2) return
-
-    const currentUserId = userId ?? session.getUserId()
-    if (!currentUserId) return
-
-    let currentProfile = profile
-    let roomMembers = members
-    let member = roomMembers.find((entry) => entry.user_id === currentUserId)
-    let username = member?.username ?? currentProfile?.username
-
-    if (!username) {
-      const identity = await loadIdentity()
-      currentProfile = identity.currentProfile
-      roomMembers = identity.roomMembers
-      member = roomMembers.find((entry) => entry.user_id === currentUserId)
-      username = member?.username ?? currentProfile?.username
-    }
-
-    const newMsg = {
-      room_id: roomRef.current,
-      user_id: currentUserId,
-      username: username ?? "Anonymous",
-      body: body.trim(),
-    }
-
-    setSending(true)
-    setError(null)
-
-    const { data, error } = await supabase
-      .from("messages")
-      .insert([newMsg])
-      .select()
-      .single()
-
-    if (error) {
-      setError("Failed to send message")
-      setSending(false)
-      return
-    }
-
-    if (data) {
-      const createdMessage = hydrateMessages(
-        [data as ChatMessage],
-        roomMembers,
-        currentProfile,
-      )[0]
-
-      setMessages((prev) => [...prev, createdMessage])
-    }
-
-    setSending(false)
-  }, [hydrateMessages, loadIdentity, members, profile, userId])
+      setSending(false);
+    },
+    [hydrateMessages, membersData, profileData, queryClient, roomId, userId],
+  );
 
   useEffect(() => {
-    if (!roomId) return
+    if (!roomId) return;
 
-    void fetchMessages()
+    let isMounted = true;
+
+    const fetchInitial = async () => {
+      setLoading(true);
+      const { data, error: sbError } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("room_id", roomId)
+        .order("created_at", { ascending: true });
+
+      if (!isMounted) return;
+
+      if (sbError) {
+        setError("Failed to load messages");
+        setLoading(false);
+        return;
+      }
+
+      setMessages(
+        hydrateMessages(
+          (data ?? []) as ChatMessage[],
+          membersRef.current,
+          profileRef.current,
+        ),
+      );
+      setLoading(false);
+    };
+
+    void fetchInitial();
 
     const channel = supabase
       .channel(`chat-${roomId}`)
@@ -214,30 +223,37 @@ export function useChat(roomId?: string | null) {
           filter: `room_id=eq.${roomId}`,
         },
         (payload) => {
-          const nextMessage = hydrateMessages([payload.new as ChatMessage])[0]
-          setMessages((prev) => [...prev, nextMessage])
-        }
+          const row = payload.new as ChatMessage;
+          const nextMessage = hydrateMessages(
+            [row],
+            membersRef.current,
+            profileRef.current,
+          )[0];
+          setMessages((prev) =>
+            prev.some((m) => m.id === nextMessage.id)
+              ? prev
+              : [...prev, nextMessage],
+          );
+        },
       )
-      .subscribe()
+      .subscribe();
 
     return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [fetchMessages, hydrateMessages, roomId])
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [hydrateMessages, roomId]);
 
   const deleteMessage = useCallback(async (id: string) => {
-    const { error } = await supabase
-      .from("messages")
-      .delete()
-      .eq("id", id)
+    const { error } = await supabase.from("messages").delete().eq("id", id);
 
     if (error) {
-      setError("Failed to delete message")
-      return
+      setError("Failed to delete message");
+      return;
     }
 
-    setMessages((prev) => prev.filter((msg) => msg.id !== id))
-  }, [])
+    setMessages((prev) => prev.filter((msg) => msg.id !== id));
+  }, []);
 
-  return { messages, sendMessage, loading, sending, error, deleteMessage }
+  return { messages, sendMessage, loading, sending, error, deleteMessage };
 }

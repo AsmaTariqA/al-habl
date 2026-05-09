@@ -3,6 +3,7 @@
 // src/components/circle/SidebarNav.tsx
 // Desktop sidebar navigation — replaces BottomNavigation on lg+ screens
 
+import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState } from "react"
@@ -71,6 +72,7 @@ const items = [
 ]
 
 export function SidebarNav() {
+  const queryClient = useQueryClient()
   const pathname = usePathname()
   const router = useRouter()
   const [leaving, setLeaving] = useState(false)
@@ -80,6 +82,7 @@ export function SidebarNav() {
     const confirmed = window.confirm("Are you sure you want to log out?")
     if (!confirmed) return
     await fetch("/api/auth/logout", { method: "POST" })
+    queryClient.removeQueries({ queryKey: ["qf"] })
     localStorage.clear()
     window.location.href = "/auth/login"
   }
@@ -88,6 +91,7 @@ export function SidebarNav() {
     const roomId = session.getRoomId()
     if (!roomId) {
       session.clearRoomId()
+      queryClient.removeQueries({ queryKey: ["qf"] })
       router.replace("/onboarding")
       return
     }
@@ -115,6 +119,7 @@ export function SidebarNav() {
     }
 
     session.clearRoomId()
+    queryClient.removeQueries({ queryKey: ["qf"] })
     router.replace("/onboarding")
   }
 
