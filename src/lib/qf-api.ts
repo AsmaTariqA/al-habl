@@ -311,9 +311,46 @@ function normalizeRoomArray(source: unknown): Room[] {
 }
 
 
+function unwrapConnectionEdges(rows: unknown[]): unknown[] {
+  if (!rows.length) return rows
+  const first = asRecord(rows[0])
+  if (first?.node !== undefined || rows.every((item) => asRecord(item)?.node !== undefined)) {
+    return rows.map((item) => asRecord(item)?.node).filter(Boolean) as unknown[]
+  }
+  return rows
+}
+
+function flattenToMemberRows(candidate: unknown, depth = 0): unknown[] {
+  if (candidate == null || depth > 6) return []
+  if (Array.isArray(candidate)) return unwrapConnectionEdges(candidate)
+
+  const record = asRecord(candidate)
+  if (!record) return []
+
+  const nextKeys = [
+    record.members,
+    record.data,
+    record.edges,
+    record.results,
+    record.nodes,
+    record.roomMembers,
+  ]
+  for (const next of nextKeys) {
+    const inner = flattenToMemberRows(next, depth + 1)
+    if (inner.length > 0) return inner
+  }
+  return []
+}
+
+function extractMemberRecords(source: unknown): unknown[] {
+  const rows = flattenToMemberRows(source)
+  return unwrapConnectionEdges(rows)
+}
+
 function normalizeMembers(source: unknown): RoomMember[] {
-  const payload = pickPayload(source, ["members", "data"])
-  return asArray(payload).map((entry) => normalizeMember(entry)).filter((entry): entry is RoomMember => Boolean(entry))
+  return extractMemberRecords(source)
+    .map((entry) => normalizeMember(entry))
+    .filter((entry): entry is RoomMember => Boolean(entry))
 }
 
 
@@ -563,7 +600,7 @@ export async function createPost(
 }
 
 export async function likePost(accessToken: string, postId: string) {
-  return Boolean(await safeFetch<unknown>(`/posts/${postId}/like`, { method: "POST" }, accessToken))
+  return Boolean(await safeFetch<unknown>(`/posts/${postId}/toggle-like`, { method: "POST" }, accessToken))
 }
 
 export async function getComments(accessToken: string, postId: string) {
@@ -572,7 +609,7 @@ export async function getComments(accessToken: string, postId: string) {
 }
 
 export async function createComment(accessToken: string, postId: string, body: string) {
-  const data = await safeFetch<unknown>(`/posts/${postId}/comments`, { method: "POST", body: JSON.stringify({ body }) }, accessToken)
+  const data = await safeFetch<unknown>(`/comments`, { method: "POST", body: JSON.stringify({ comment: { postId: String(postId), body } }) }, accessToken)
   return normalizeComment(pickPayload(data, ["comment", "data"]) ?? data)
 }
 
@@ -621,6 +658,7 @@ export async function getActivityDays(accessToken: string) {
     to,
     type: "QURAN",
     dateOrderBy: "desc",
+    first: "20",
   })
   const data = await safeFetch<unknown>(
     `/activity-days?${query.toString()}`,
@@ -649,7 +687,7 @@ export async function logActivityDay(
 
   return Boolean(
     await safeFetch<unknown>(
-      "/activity-days",
+      "/users/me/activity-days",
       {
         method: "POST",
         body: JSON.stringify(payload),
@@ -657,7 +695,7 @@ export async function logActivityDay(
       },
       accessToken,
       true,
-      AUTH_BASE,
+      USER_BASE,
     )
   )
 }
@@ -888,16 +926,63 @@ function normalizePosts(source: unknown): Post[] {
     .filter((entry): entry is Post => Boolean(entry))
 }
 
+/** Parse join-date from ISO string or numeric epoch (seconds or ms). */
+function coalesceJoinedAtRaw(value: unknown): string {
+  if (value == null || value === "") return ""
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const ms = value < 1e12 ? Math.round(value * 1000) : value
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString()
+  }
+  const text = readTrimmedString(value)
+  return text
+}
+
+function readMemberJoinedAt(record: Record<string, unknown>): string {
+  const participation = asRecord(record.participant) ?? asRecord(record.membership)
+  const user = asRecord(record.user)
+
+  const candidates: unknown[] = [
+    record.joined_at,
+    record.createdAt,
+    record.created_at,
+    record.joinedAt,
+    participation?.joined_at,
+    participation?.joinedAt,
+    participation?.created_at,
+    participation?.createdAt,
+    user?.joined_at,
+    user?.joinedAt,
+    user?.member_since,
+  ]
+  for (const value of candidates) {
+    const text = coalesceJoinedAtRaw(value)
+    if (text) return text
+  }
+  return ""
+}
+
 function normalizeMember(source: unknown): RoomMember | null {
   const record = asRecord(source)
   if (!record) return null
-  const userId = readIdentifier(record.user_id, record.id)
+  const user = asRecord(record.user)
+  const userId = readIdentifier(
+    record.user_id,
+    record.userId,
+    user?.id,
+    user?.user_id,
+    record.id,
+  )
   const username = readDisplayName(
     [
       record.username,
       record.name,
       record.displayName,
+      user?.username,
+      user?.name,
+      user?.displayName,
       combineNameParts(record.firstName, record.lastName),
+      combineNameParts(user?.firstName, user?.lastName),
     ],
     [userId],
     "Member",
@@ -909,9 +994,13 @@ function normalizeMember(source: unknown): RoomMember | null {
       readString(record.avatar) ||
       readString(asRecord(record.avatarUrl)?.small) ||
       readString(asRecord(record.avatarUrls)?.small) ||
+      readString(asRecord(user?.avatarUrl)?.small) ||
+      readString(asRecord(user?.avatarUrls)?.small) ||
       undefined,
-    joined_at: readString(record.joined_at) || readString(record.createdAt) || new Date().toISOString(),
-    has_reflected_today: readBoolean(record.has_reflected_today),
+    joined_at: readMemberJoinedAt(record),
+    has_reflected_today:
+      readBoolean(record.has_reflected_today) ||
+      readBoolean(record.hasReflectedToday),
   }
 }
 
