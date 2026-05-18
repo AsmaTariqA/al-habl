@@ -5,7 +5,7 @@ import { buildPageMetadata } from "@/lib/metadata/site"
 export const metadata: Metadata = buildPageMetadata({
   title: "Home",
   description:
-    "Daily ayah rhythm, guided reflection lenses, and human accountability — Al-Habl, the Quranic circle platform.",
+    "Daily ayah rhythm, guided reflection lenses, grounded study librarian AI, and human accountability - Al-Habl, the Quranic circle platform.",
 })
 
 export default function HomePage() {

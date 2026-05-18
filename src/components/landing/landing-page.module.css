@@ -434,6 +434,85 @@
 }
 
 /* ── CTA Banner ──────────────────────────────────── */
+/* Study librarian panel */
+.librarianPanel {
+  padding: 1.6rem;
+  border: 1px solid var(--gold-border);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--gold) 10%, transparent), transparent 42%),
+    var(--glass);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.librarianPrompt {
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--gold-border);
+  background: var(--gold-dim);
+}
+
+.librarianBadge {
+  display: inline-flex;
+  margin-bottom: 0.75rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--gold-border);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-family: monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.librarianQuestion {
+  font-size: 1rem;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.librarianList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.librarianListItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--glass-border);
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.librarianListItem:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.librarianBullet {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--gold) 50%, transparent);
+  flex-shrink: 0;
+  margin-top: 0.42rem;
+}
+
+.librarianNote {
+  padding-top: 0.25rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+/* CTA banner */
 .ctaBanner {
   max-width: 76rem;
   margin: 0 auto;

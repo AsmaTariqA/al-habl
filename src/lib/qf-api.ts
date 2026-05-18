@@ -501,11 +501,13 @@ export async function acceptInviteByToken(
   )
 }
 export async function leaveRoom(accessToken: string, roomId: string) {
-  return Boolean(await safeFetch<unknown>(`/rooms/${roomId}/leave`, { method: "POST" }, accessToken))
+  const result = await safeFetchResult<unknown>(`/rooms/${roomId}/leave`, { method: "POST" }, accessToken)
+  return result.error === null
 }
 
 export async function inviteToRoom(accessToken: string, roomId: string, userId: string) {
-  return Boolean(await safeFetch<unknown>(`/rooms/${roomId}/invite`, { method: "POST", body: JSON.stringify({ userIds: [userId] }) }, accessToken))
+  const result = await safeFetchResult<unknown>(`/rooms/${roomId}/invite`, { method: "POST", body: JSON.stringify({ userIds: [userId] }) }, accessToken)
+  return result.error === null
 }
 
 export async function getUserRooms(accessToken: string, limit = 5) {

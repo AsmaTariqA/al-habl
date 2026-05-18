@@ -49,6 +49,27 @@ const miniPanels = [
   { title: "Return Tomorrow", body: "One verse a day. Consistency builds depth without burnout." },
 ]
 
+const librarianHighlights = [
+  {
+    title: "Grounded Answers",
+    body: "Ask about a verse and get help anchored in tafsir, word study, and Quranic source material instead of vague AI summaries.",
+  },
+  {
+    title: "Lens-Aware Guidance",
+    body: "The librarian follows the same daily lens as your circle, so the help stays focused on the exact kind of reflection you are practicing.",
+  },
+  {
+    title: "Sources Included",
+    body: "Every answer points back to the sources it used, so your group can trace the scholarship and keep the reflection honest.",
+  },
+]
+
+const librarianReturns = [
+  "Classical tafsir and verified Quranic references",
+  "Word roots, language clues, and verse connections",
+  "A short study guide that supports - not replaces - your own reflection",
+]
+
 // ── Stat card — hooks at component level, not inside .map() ───────
 // This was the bug: useCountUp was being called inside stats.map()
 // inside LandingPage — that violates Rules of Hooks.
@@ -169,7 +190,8 @@ export function LandingPage() {
               transition={{ delay: 0.55, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
             >
               Al-Habl keeps a small circle of believers aligned on the same ayah, the same lenses,
-              and the same rhythm. Quiet, daily, and deeply communal.
+              and the same rhythm. When you need help going deeper, a study librarian AI surfaces
+              grounded scholarship without taking over your reflection.
             </motion.p>
 
             <motion.div
@@ -286,6 +308,48 @@ export function LandingPage() {
         </div>
       </section>
 
+      <section className={styles.sectionBlock} id="librarian">
+        <div className={styles.dualPanel}>
+          <Reveal className={styles.contentPanel}>
+            <p className={styles.sectionKicker}>Study Librarian AI</p>
+            <h3 className={styles.sectionTitle}>Ask grounded questions without outsourcing your reflection</h3>
+            <p className={styles.sectionBody}>
+              When a verse opens a harder question, the librarian searches verified Quranic material
+              and classical scholarship through the lens you selected. It helps you study deeper,
+              then hands the final reflection back to you.
+            </p>
+            <div className={styles.miniGrid}>
+              {librarianHighlights.map((item) => (
+                <div key={item.title} className={styles.miniCard}>
+                  <p className={styles.miniTitle}>{item.title}</p>
+                  <p className={styles.miniBody}>{item.body}</p>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+          <Reveal delay={0.1} className={styles.librarianPanel}>
+            <p className={styles.panelKicker}>Inside the answer</p>
+            <div className={styles.librarianPrompt}>
+              <span className={styles.librarianBadge}>Language lens</span>
+              <p className={styles.librarianQuestion}>
+                Why is the image of the rope used here, and what do the scholars highlight about it?
+              </p>
+            </div>
+            <div className={styles.librarianList}>
+              {librarianReturns.map((item) => (
+                <div key={item} className={styles.librarianListItem}>
+                  <span className={styles.librarianBullet} aria-hidden="true" />
+                  <p>{item}</p>
+                </div>
+              ))}
+            </div>
+            <p className={styles.librarianNote}>
+              The librarian surfaces scholarship and sources. Your own reflection still belongs to you.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
       {/* ── CTA banner ── */}
       <section className={styles.sectionBlock}>
         <Reveal>
@@ -315,6 +379,7 @@ export function LandingPage() {
             <Link href="/auth/login">Sign in</Link>
             <Link href="/onboarding">Create a circle</Link>
             <Link href="#how">How it works</Link>
+            <Link href="#librarian">Study Librarian AI</Link>
           </div>
         </div>
       </footer>
