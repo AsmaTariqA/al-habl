@@ -12,38 +12,38 @@ export const LENSES = [
 export type Lens = (typeof LENSES)[number]
 
 export const LENS_LABELS: Record<Lens, string> = {
-  vocabulary: "Vocabulary",
-  structure: "Structure",
-  context: "Context",
-  audience: "Audience",
-  relevance: "Relevance",
+  vocabulary: "Language Lens",
+  structure: "Quranic World",
+  context: "Personal Experience",
+  audience: "Connections",
+  relevance: "General Lessons",
 }
 
 export const LENS_PROMPTS: Record<Lens, string[]> = {
   vocabulary: [
-    "Which word in this verse stands out most to you? Why?",
-    "What deeper meanings could this word have?",
-    "Is there a reason Allah used this word instead of another?",
+    "What is the purpose of this Ayah and each part of it being stated?",
+    "Why was it said in this particular way with these particular words?",
+    "What can I appreciate through word order and grammar—especially where there is added emphasis or features that go against the expected norm?",
   ],
   structure: [
-    "What's the order of ideas in this verse, and why might it matter?",
-    "Does the sentence structure change the tone or emphasis?",
-    "Is there repetition or symmetry that catches your attention?",
+    "What is the world of Revelation? How does understanding the historical landscape, the companions, and the social context of the Prophet (SAW) enhance my understanding of the Ayah?",
+    "What is the historical context of the past? How can learning about the specific nations and civilizations mentioned in the Qur'an help me grasp the deeper significance of these stories?",
+    "How does the wider world of creation relate? How does reflecting on the expansive universe and natural laws described in the Qur'an help me better appreciate the greatness of the Creator?",
   ],
   context: [
-    "What situation might this verse be responding to?",
-    "Why do you think Allah revealed this message at that time?",
-    "Does this connect to a historical event or broader theme?",
+    "What does this Ayah mean to me? This is the foundational question of this lens, shifting the focus from objective analysis to personal reflection.",
+    "When Allah trusts you with a trial, then why do you not trust Allah's plan and yourself?",
+    "What spiritual transformation is this verse calling me toward?",
   ],
   audience: [
-    "Who is Allah speaking to in this verse?",
-    "What message is being sent to that audience?",
-    "How would this verse feel if it were addressing you personally?",
+    "Are there specific words, concepts, or themes recurring within this Surah that act as 'anchors' to reveal a deeper, underlying meaning or structure?",
+    "How does the verse I am reading connect to the verses immediately preceding and following it, and how does this flow impact the overall message of the Surah?",
+    "How can I connect this specific Ayah to other parts of the Qur'an or supporting narrations (Hadith) to better contextualize and enrich my understanding of the subject matter?",
   ],
   relevance: [
-    "How is this verse relevant to something you're going through?",
-    "What emotions or thoughts does this verse trigger today?",
-    "What change can you make in your life after reading this?",
+    "How can I express the basic meaning of this Ayah as a general principle, lesson, or a fact of life?",
+    "To what other cases is this general point relevant, and what analogous situations help me to better appreciate the wisdom of this Ayah?",
+    "What change points does it contain? In other words, what does this Ayah imply in terms of something that would affect a change, elicit a spiritual response, or inspire me to turn to Allah and ask for something?",
   ],
 }
 

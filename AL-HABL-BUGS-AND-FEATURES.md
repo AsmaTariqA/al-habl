@@ -139,29 +139,7 @@ console.log('Streak data:', streak) // Add this to debug
 ## 🟡 MUST-HAVE FEATURES
 ### Add these after bugs are fixed.
 
----
 
-### FEATURE 1 — Leave Circle
-**What it does:** User can leave their current circle to join a different one.
-
-**API call (already exists in qf-api.ts):**
-```typescript
-export async function leaveRoom(accessToken: string, roomId: string) {
-  // Already implemented — just needs UI
-}
-```
-
-**Where to add UI:**
-- Profile page or Circle settings
-- A "Leave Circle" button with confirmation dialog
-- After leaving: clear `session.getRoomId()`, redirect to `/onboarding`
-
-**UI flow:**
-```
-Click "Leave Circle" 
-→ Confirmation: "Are you sure? You'll need an invite code to rejoin."
-→ Confirm → call leaveRoom() → clear session → redirect to /onboarding
-```
 
 ---
 
@@ -181,21 +159,6 @@ export async function getUserRooms(accessToken: string) {
 
 ---
 
-### FEATURE 3 — Join a Different Circle
-**What it does:** User can switch from their current circle to a new one.
-
-**Flow:**
-```
-Profile page → "Join Another Circle" 
-→ Enter invite code 
-→ Call joinRoom() or acceptInviteByToken()
-→ Update session.setRoomId() with new circle
-→ Redirect to /circle
-```
-
-**Note:** User should be able to be in multiple circles eventually but for now — leave first, then join.
-
----
 
 ### FEATURE 4 — Profile Page with Circle Info
 **What it does:** Profile page shows everything about the user's Quran journey.
@@ -262,40 +225,10 @@ Profile Page Layout:
 ## 📋 BUILD ORDER
 
 ```
-Week 1 (April 21-27):
-Day 1  → BUG 2: Fix posts disappearing (most visible)
-Day 2  → BUG 3: Fix member names in chat
-Day 3  → BUG 1: Fix circle name display
-Day 4  → BUG 5: Fix streaks and activity
-Day 5  → BUG 4: Fix joined date
 
-Week 2 (April 28 - May 4):
-Day 1  → FEATURE 1: Leave circle button
-Day 2  → FEATURE 2+3: See circles + join different circle
-Day 3  → FEATURE 4: Profile page with circle info
-Day 4  → FEATURE 5: Onboarding shows existing circles
-Day 5  → Test everything with real people
-
-Week 3 (May 5-10):
-Day 1-2 → Polish UI, fix anything testers found
-Day 3   → Demo video with real circle
-Day 4   → Write submission documentation  
-Day 5   → Submit before May 10th (before exams start)
-```
 
 ---
 
-## 🚫 OUT OF SCOPE
-### Do NOT build these before May 10th.
-
-- Push notifications
-- Real-time chat (async is fine)
-- Multiple circles simultaneously
-- Circle discovery/search
-- Admin controls
-- Scholar verification
-- Mobile app
-- Any AI features (team member is handling that separately)
 
 ---
 

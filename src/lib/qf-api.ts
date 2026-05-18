@@ -508,13 +508,13 @@ export async function inviteToRoom(accessToken: string, roomId: string, userId: 
   return Boolean(await safeFetch<unknown>(`/rooms/${roomId}/invite`, { method: "POST", body: JSON.stringify({ userIds: [userId] }) }, accessToken))
 }
 
-export async function getUserRooms(accessToken: string) {
-  const data = await safeFetch<unknown>("/users/my-rooms?limit=5", {}, accessToken)
+export async function getUserRooms(accessToken: string, limit = 5) {
+  const data = await safeFetch<unknown>(`/users/my-rooms?limit=${limit}`, {}, accessToken)
   return normalizeRoomArray(data)
 }
 
-export async function getUserRoomsResult(accessToken: string) {
-  const result = await safeFetchResult<unknown>("/users/my-rooms?limit=5", {}, accessToken)
+export async function getUserRoomsResult(accessToken: string, limit = 5) {
+  const result = await safeFetchResult<unknown>(`/users/my-rooms?limit=${limit}`, {}, accessToken)
   return { rooms: normalizeRoomArray(result.data), error: result.error }
 }
 

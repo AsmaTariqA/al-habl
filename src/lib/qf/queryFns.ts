@@ -56,6 +56,8 @@ export type ProfileExtrasResult = {
   bookmarks: Awaited<ReturnType<typeof getBookmarks>>
   collections: Awaited<ReturnType<typeof getCollections>>
   notes: Awaited<ReturnType<typeof getNotes>>
+  rooms: Awaited<ReturnType<typeof getUserRooms>>
+  totalReflections: number
   monthlyReflections: number
 }
 
@@ -70,7 +72,7 @@ export async function qfProfileExtrasQueryFn(): Promise<ProfileExtrasResult | nu
       getBookmarks(token).catch(() => null),
       getCollections(token).catch(() => null),
       getNotes(token).catch(() => null),
-      getUserRooms(token).catch(() => null),
+      getUserRooms(token, 100).catch(() => null),
     ])
 
   const currentMonthKey = new Date().toISOString().slice(0, 7)
@@ -80,12 +82,15 @@ export async function qfProfileExtrasQueryFn(): Promise<ProfileExtrasResult | nu
       getRoomPosts(token, room.id).catch(() => [] as Post[]),
     ),
   )
-  const reflectionCount = roomPosts
+  const reflectionPosts = roomPosts
     .flatMap((items) => items ?? [])
     .filter(
-      (post) =>
-        post.user_id === userId && post.created_at.startsWith(currentMonthKey),
-    ).length
+      (post) => post.user_id === userId,
+    )
+
+  const monthlyReflections = reflectionPosts.filter((post) =>
+    post.created_at.startsWith(currentMonthKey),
+  ).length
 
   return {
     activityDays: activityData ?? [],
@@ -93,6 +98,8 @@ export async function qfProfileExtrasQueryFn(): Promise<ProfileExtrasResult | nu
     bookmarks: bookmarks ?? [],
     collections: collections ?? [],
     notes: notes ?? [],
-    monthlyReflections: reflectionCount,
+    rooms: rooms ?? [],
+    totalReflections: reflectionPosts.length,
+    monthlyReflections,
   }
 }

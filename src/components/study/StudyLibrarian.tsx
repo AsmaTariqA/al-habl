@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, ReactNode } from 'react'
 
 interface StudyLibrarianProps {
   verseKey: string
@@ -8,20 +8,204 @@ interface StudyLibrarianProps {
   translationText: string
 }
 
+function cleanResponseText(text: string): string {
+  // Remove function call artifacts (<invoke>, <parameter>, etc.)
+  text = text.replace(/<invoke[^>]*>[\s\S]*?<\/invoke>/g, '')
+  text = text.replace(/<function_calls[^>]*>[\s\S]*?<\/function_calls>/g, '')
+  text = text.replace(/<parameter[^>]*>[\s\S]*?<\/parameter>/g, '')
+  
+  // Remove any remaining XML-like tags
+  text = text.replace(/<[^>]+>/g, '')
+  
+  // Remove leading preamble (lines starting with intro text about "I'll help", "let me", etc.)
+  const lines = text.split('\n')
+  let startIdx = 0
+  
+  // Skip introductory lines that aren't part of the main response
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim().toLowerCase()
+    if (line.startsWith('i\'ll') || line.startsWith('let me') || 
+        line.startsWith('based on') || line.startsWith('<invoke')) {
+      startIdx = i + 1
+    } else if (line && !line.startsWith('function') && !line.startsWith('<')) {
+      break
+    }
+  }
+  
+  // Join remaining lines and clean up
+  text = lines.slice(startIdx).join('\n')
+  
+  // Clean up excessive whitespace
+  text = text.replace(/\n\n\n+/g, '\n\n')
+  text = text.trim()
+  
+  return text
+}
+
+function parseMarkdownResponse(text: string): ReactNode[] {
+  // Clean the response first
+  text = cleanResponseText(text)
+  
+  const lines = text.split('\n')
+  const result: ReactNode[] = []
+  let i = 0
+  let keyCounter = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+    const currentKey = keyCounter++
+    
+    // Headers (## ...)
+    if (line.startsWith('## ')) {
+      result.push(
+        <h3 key={`header-${currentKey}`} className="text-sm font-bold text-[var(--text)] mt-3 mb-2">
+          {line.replace('## ', '')}
+        </h3>
+      )
+      i++
+      continue
+    }
+
+    // Subheaders with bold text (text followed by em-dash or colon)
+    if (/^[A-Z][^:\n]*\s?—|^[A-Z][^:\n]*:/.test(line) && !line.startsWith('- ') && !line.startsWith('#')) {
+      const boldMatch = line.match(/^([^—:]+)(—|:)(.*)$/)
+      if (boldMatch) {
+        result.push(
+          <p key={`subheader-${currentKey}`} className="text-sm leading-7 text-[var(--text)] mt-2">
+            <strong>{boldMatch[1].trim()}</strong>{boldMatch[2]}{boldMatch[3] ? ` ${parseInlineMarkdown(boldMatch[3])}` : ''}
+          </p>
+        )
+        i++
+        continue
+      }
+    }
+
+    // List items (- ...)
+    if (line.startsWith('- ')) {
+      const listItems: string[] = []
+      while (i < lines.length && lines[i].startsWith('- ')) {
+        listItems.push(lines[i].replace('- ', ''))
+        i++
+      }
+      result.push(
+        <ul key={`ul-${currentKey}`} className="list-disc list-inside space-y-1 text-sm text-[var(--text)] ml-1">
+          {listItems.map((item, idx) => (
+            <li key={`li-${currentKey}-${idx}`} className="text-[var(--text)]">
+              {parseInlineMarkdown(item)}
+            </li>
+          ))}
+        </ul>
+      )
+      keyCounter++
+      continue
+    }
+
+    // Numbered items (1. ...)
+    if (/^\d+\. /.test(line)) {
+      const listItems: string[] = []
+      let counter = 1
+      while (i < lines.length && new RegExp(`^${counter}\\. `).test(lines[i])) {
+        listItems.push(lines[i].replace(/^\d+\. /, ''))
+        i++
+        counter++
+      }
+      result.push(
+        <ol key={`ol-${currentKey}`} className="list-decimal list-inside space-y-1 text-sm text-[var(--text)] ml-1">
+          {listItems.map((item, idx) => (
+            <li key={`ol-li-${currentKey}-${idx}`} className="text-[var(--text)]">
+              {parseInlineMarkdown(item)}
+            </li>
+          ))}
+        </ol>
+      )
+      keyCounter++
+      continue
+    }
+
+    // Empty lines
+    if (line.trim() === '') {
+      result.push(<div key={`empty-${currentKey}`} className="h-2" />)
+      i++
+      continue
+    }
+
+    // Regular paragraphs
+    if (line.trim()) {
+      result.push(
+        <p key={`para-${currentKey}`} className="text-sm leading-7 text-[var(--text)]">
+          {parseInlineMarkdown(line)}
+        </p>
+      )
+    }
+    
+    i++
+  }
+
+  return result
+}
+
+function parseInlineMarkdown(text: string): ReactNode {
+  const parts: ReactNode[] = []
+  let lastIndex = 0
+  let keyCounter = 0
+
+  // Match **bold**, *italic*, `code`, and plain text
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before match
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index))
+    }
+
+    // Add styled match
+    const matched = match[0]
+    if (matched.startsWith('**')) {
+      parts.push(
+        <strong key={`bold-${keyCounter++}`} className="font-semibold text-[var(--text)]">
+          {matched.slice(2, -2)}
+        </strong>
+      )
+    } else if (matched.startsWith('*')) {
+      parts.push(
+        <em key={`italic-${keyCounter++}`} className="italic text-[var(--text)]">
+          {matched.slice(1, -1)}
+        </em>
+      )
+    } else if (matched.startsWith('`')) {
+      parts.push(
+        <code key={`code-${keyCounter++}`} className="bg-white/8 rounded px-1.5 py-0.5 font-mono text-xs text-[var(--gold)]">
+          {matched.slice(1, -1)}
+        </code>
+      )
+    }
+
+    lastIndex = regex.lastIndex
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : text
+}
+
 const LENS_PLACEHOLDERS: Record<string, string> = {
-  vocabulary: "Ask about a specific word — its root, meaning, or why it was chosen...",
-  structure: "Ask about the sentence structure, order of ideas, or literary devices...",
-  context: "Ask about when or why this verse was revealed, the historical situation...",
-  audience: "Ask about who Allah is speaking to and what message is being sent...",
-  relevance: "Ask how scholars understood the timeless lessons in this verse..."
+  vocabulary: "Ask about word meanings, purpose, or what makes this phrasing unique...",
+  structure: "Ask about the historical context, revelation circumstances, or creation references...",
+  context: "Ask what this verse means for you personally or how to apply it in your life...",
+  audience: "Ask how this verse connects to other parts of the Quran or surrounding verses...",
+  relevance: "Ask about the fundamental lessons, wisdom, or transformational messages here..."
 }
 
 const LENS_LABELS: Record<string, string> = {
-  vocabulary: "Vocabulary",
-  structure: "Structure", 
-  context: "Context",
-  audience: "Audience",
-  relevance: "Relevance"
+  vocabulary: "Language Lens",
+  structure: "Quranic World", 
+  context: "Personal Experience",
+  audience: "Connections",
+  relevance: "General Lessons"
 }
 
 export default function StudyLibrarian({
@@ -146,15 +330,15 @@ export default function StudyLibrarian({
       {/* Response */}
       {response && (
         <div className="rounded-xl border border-[var(--gold-border)] bg-gradient-to-br 
-          from-[var(--gold-dim)] to-transparent p-4 space-y-3">
+          from-[var(--gold-dim)] to-transparent p-4 space-y-4">
           
           <p className="text-xs font-semibold tracking-widest uppercase text-[var(--gold)]">
             From the Scholars
           </p>
           
-          <p className="text-sm leading-7 text-[var(--text)] whitespace-pre-wrap">
-            {response}
-          </p>
+          <div className="space-y-3 text-[var(--text)]">
+            {parseMarkdownResponse(response)}
+          </div>
           
           {sources && (
             <div className="border-t border-white/8 pt-3">

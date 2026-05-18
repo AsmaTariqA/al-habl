@@ -8,7 +8,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState } from "react"
 import { getClientAccessToken } from "@/lib/client-access"
-import { leaveRoom } from "@/lib/qf-api"
+import { getUserRooms, leaveRoom } from "@/lib/qf-api"
 import { session } from "@/lib/session"
 
 const items = [
@@ -118,9 +118,17 @@ export function SidebarNav() {
       return
     }
 
-    session.clearRoomId()
+    const remainingRooms = await getUserRooms(token, 100).catch(() => [])
+    const nextRoom = remainingRooms.find((room) => room.id !== roomId) ?? null
+
+    if (nextRoom) {
+      session.setRoomId(nextRoom.id)
+    } else {
+      session.clearRoomId()
+    }
+
     queryClient.removeQueries({ queryKey: ["qf"] })
-    router.replace("/onboarding")
+    router.replace(nextRoom ? "/circle" : "/onboarding")
   }
 
   return (

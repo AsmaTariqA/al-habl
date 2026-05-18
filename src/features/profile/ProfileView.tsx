@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { AppShell } from "@/components/circle/AppShell"
 import { ThemeToggle } from "@/components/theme/ThemeToggle"
 import { useQfProfileQuery } from "@/hooks/qf/useQfProfile"
@@ -13,6 +14,7 @@ import {
   type ProfileExtrasResult,
 } from "@/lib/qf/queryFns"
 import { createGoal } from "@/lib/qf-api"
+import { session } from "@/lib/session"
 
 function getInitials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")
@@ -30,6 +32,7 @@ export function ProfileView() {
   const queryClient = useQueryClient()
   const [goalType, setGoalType] = useState("Read 1 verse daily")
   const [goalTarget, setGoalTarget] = useState(7)
+  const [switchingCircleId, setSwitchingCircleId] = useState<string | null>(null)
 
   const profileQ = useQfProfileQuery()
   const streakQ = useQfStreaksQuery()
@@ -52,6 +55,9 @@ export function ProfileView() {
   )
 
   const goals = extrasQ.data?.goals ?? []
+  const rooms = extrasQ.data?.rooms ?? []
+  const currentRoomId = session.getRoomId()
+  const currentRoom = rooms.find((r) => r.id === currentRoomId)
   const bookmarksCount = extrasQ.data?.bookmarks?.length ?? 0
   const collectionsCount = extrasQ.data?.collections?.length ?? 0
   const notesCount = extrasQ.data?.notes?.length ?? 0
@@ -87,11 +93,21 @@ export function ProfileView() {
             bookmarks: [],
             collections: [],
             notes: [],
+            rooms: [],
+            totalReflections: 0,
             monthlyReflections: 0,
           }
           return { ...base, goals: [goal, ...base.goals] }
         },
       )
+    },
+  })
+
+  const switchCircleMutation = useMutation({
+    mutationFn: async (roomId: string) => {
+      session.setRoomId(roomId)
+      // Navigate to circle after switching
+      window.location.href = "/circle"
     },
   })
 
@@ -153,6 +169,36 @@ export function ProfileView() {
           </div>
         </section>
 
+        {/* Current Circle Section — Feature 4 */}
+        {currentRoom && (
+          <section className="glass-card" style={{ padding: "1.5rem 2rem" }}>
+            <span className="muted-kicker" style={{ display: "flex", marginBottom: "0.35rem" }}>Current Circle</span>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "1.5rem", alignItems: "start", marginTop: "1rem" }}>
+              <div>
+                <h3 style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "0.5rem", letterSpacing: "-0.01em" }}>{currentRoom.name}</h3>
+                {currentRoom.description && (
+                  <p style={{ fontSize: "0.875rem", color: "var(--muted)", marginBottom: "1rem", lineHeight: 1.5 }}>{currentRoom.description}</p>
+                )}
+                <div style={{ display: "flex", gap: "2rem", marginTop: "1rem" }}>
+                  <div>
+                    <span className="muted-kicker" style={{ display: "flex", marginBottom: "0.35rem", fontSize: "0.75rem" }}>Members</span>
+                    <p style={{ fontSize: "1.5rem", fontWeight: 600 }}>{currentRoom.member_count}</p>
+                  </div>
+                  {currentRoom.invite_code && (
+                    <div>
+                      <span className="muted-kicker" style={{ display: "flex", marginBottom: "0.35rem", fontSize: "0.75rem" }}>Invite Code</span>
+                      <p style={{ fontSize: "1rem", fontWeight: 600, fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>{currentRoom.invite_code}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Link href="/circle" className="button-primary" style={{ display: "block", padding: "0.65rem 1.25rem", textDecoration: "none", width: "auto", whiteSpace: "nowrap", marginTop: "0.5rem" }}>
+                Go to Circle
+              </Link>
+            </div>
+          </section>
+        )}
+
         <section className="glass-card" style={{ padding: "1.5rem 2rem" }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.25rem" }}>
             <div>
@@ -212,6 +258,62 @@ export function ProfileView() {
             </button>
           </div>
         </section>
+
+        {/* My Circles Section — Feature 2 */}
+        {rooms.length > 0 && (
+          <section className="glass-card" style={{ padding: "1.5rem 2rem" }}>
+            <span className="muted-kicker" style={{ display: "flex", marginBottom: "0.35rem" }}>My Circles</span>
+            <p style={{ fontSize: "0.875rem", color: "var(--muted)", marginBottom: "1.25rem" }}>Circles you've created or joined</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
+              {rooms.map((room) => {
+                const isCurrentRoom = room.id === currentRoomId
+                return (
+                  <div key={room.id} style={{ padding: "1.25rem", background: isCurrentRoom ? "var(--gold-dim)" : "var(--glass)", border: `1px solid ${isCurrentRoom ? "var(--gold-border)" : "var(--glass-border)"}`, borderRadius: "var(--radius-md)", display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                        <h4 style={{ fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{room.name}</h4>
+                        {isCurrentRoom && <span style={{ fontSize: "0.65rem", padding: "0.25rem 0.5rem", background: "var(--gold)", color: "var(--dark)", fontWeight: 600, borderRadius: "var(--radius-sm)", flexShrink: 0 }}>Active</span>}
+                      </div>
+                      {room.description && (
+                        <p style={{ fontSize: "0.8rem", color: "var(--muted)", lineHeight: 1.4, marginBottom: "0.75rem" }}>{room.description}</p>
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+                        <div>
+                          <span className="muted-kicker" style={{ display: "flex", marginBottom: "0.3rem", fontSize: "0.7rem" }}>Members</span>
+                          <p style={{ fontSize: "1.25rem", fontWeight: 600 }}>{room.member_count}</p>
+                        </div>
+                        {room.invite_code && (
+                          <div>
+                            <span className="muted-kicker" style={{ display: "flex", marginBottom: "0.3rem", fontSize: "0.7rem" }}>Code</span>
+                            <p style={{ fontSize: "0.875rem", fontWeight: 600, fontFamily: "var(--font-mono)" }}>{room.invite_code}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {!isCurrentRoom && (
+                      <button
+                        className="button-primary"
+                        onClick={() => {
+                          setSwitchingCircleId(room.id)
+                          void switchCircleMutation.mutate(room.id)
+                        }}
+                        disabled={switchCircleMutation.isPending || switchingCircleId === room.id}
+                        style={{ width: "100%", fontSize: "0.875rem", padding: "0.6rem" }}
+                      >
+                        {switchingCircleId === room.id && switchCircleMutation.isPending ? "Switching…" : "Switch to Circle"}
+                      </button>
+                    )}
+                    {isCurrentRoom && (
+                      <Link href="/circle" style={{ display: "block", textDecoration: "none", width: "100%", textAlign: "center", padding: "0.6rem", fontSize: "0.875rem", background: "var(--gold)", color: "var(--dark)", fontWeight: 600, borderRadius: "var(--radius-sm)", border: "none", cursor: "pointer" }}>
+                        Go to Circle
+                      </Link>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         <section style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem" }} className="sm:!grid-cols-4">
           {[

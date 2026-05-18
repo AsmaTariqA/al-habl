@@ -36,9 +36,9 @@ This is theologically intentional. Reflection on the Quran is the responsibility
 
 **What the Librarian does:**
 - User reads today's ayah
-- User picks a lens (vocabulary, structure, context, audience, relevance)
+- User picks a lens (Language, Quranic World, Personal Experience, Connections, General Lessons)
 - User reads the lens prompts and tries to answer themselves first
-- User can then ask the Librarian: "What does this word mean?" or "What's the historical context here?"
+- User can then ask the Librarian questions suited to that lens
 - Librarian fetches verified tafsir + word morphology + translations from Quran MCP
 - Returns sources and explanations — NOT opinions or personal reflections
 - User uses those resources to deepen their own reflection
@@ -59,40 +59,40 @@ This is the intellectual core of the entire app. Every ayah is studied through t
 ```typescript
 export const LENS_PROMPTS = {
   vocabulary: [
-    "Which word in this verse stands out most to you? Why?",
-    "What deeper meanings could this word have?",
-    "Is there a reason Allah used this word instead of another?"
+    "What is the purpose of this Ayah and each part of it being stated?",
+    "Why was it said in this particular way with these particular words?",
+    "What can I appreciate through word order and grammar—especially where there is added emphasis or features that go against the expected norm?"
   ],
   structure: [
-    "What's the order of ideas in this verse, and why might it matter?",
-    "Does the sentence structure change the tone or emphasis?",
-    "Is there repetition or symmetry that catches your attention?"
+    "What is the world of Revelation? How does understanding the historical landscape, the companions, and the social context of the Prophet (SAW) enhance my understanding of the Ayah?",
+    "What is the historical context of the past? How can learning about the specific nations and civilizations mentioned in the Qur'an help me grasp the deeper significance of these stories?",
+    "How does the wider world of creation relate? How does reflecting on the expansive universe and natural laws described in the Qur'an help me better appreciate the greatness of the Creator?"
   ],
   context: [
-    "What situation might this verse be responding to?",
-    "Why do you think Allah revealed this message at that time?",
-    "Does this connect to a historical event or broader theme?"
+    "What does this Ayah mean to me? This is the foundational question of this lens, shifting the focus from objective analysis to personal reflection.",
+    "When Allah trusts you with a trial, then why do you not trust Allah's plan and yourself?",
+    "What spiritual transformation is this verse calling me toward?"
   ],
   audience: [
-    "Who is Allah speaking to in this verse?",
-    "What message is being sent to that audience?",
-    "How would this verse feel if it were addressing you personally?"
+    "Are there specific words, concepts, or themes recurring within this Surah that act as 'anchors' to reveal a deeper, underlying meaning or structure?",
+    "How does the verse I am reading connect to the verses immediately preceding and following it, and how does this flow impact the overall message of the Surah?",
+    "How can I connect this specific Ayah to other parts of the Qur'an or supporting narrations (Hadith) to better contextualize and enrich my understanding of the subject matter?"
   ],
   relevance: [
-    "How is this verse relevant to something you're going through?",
-    "What emotions or thoughts does this verse trigger today?",
-    "What change can you make in your life after reading this?"
+    "How can I express the basic meaning of this Ayah as a general principle, lesson, or a fact of life?",
+    "To what other cases is this general point relevant, and what analogous situations help me to better appreciate the wisdom of this Ayah?",
+    "What change points does it contain? In other words, what does this Ayah imply in terms of something that would affect a change, elicit a spiritual response, or inspire me to turn to Allah and ask for something?"
   ]
 }
 ```
 
 Each lens asks different questions. The Librarian's response should be shaped by which lens the user is studying through:
 
-- **Vocabulary** → Librarian fetches word morphology, root meanings, concordance
-- **Structure** → Librarian fetches tafsir focused on linguistic analysis
-- **Context** → Librarian fetches historical context, asbab al-nuzul
-- **Audience** → Librarian fetches tafsir on who is being addressed
-- **Relevance** → Librarian fetches general tafsir and thematic connections
+- **Language Lens** → Librarian fetches word morphology, root meanings, concordance, linguistic analysis
+- **Quranic World** → Librarian fetches historical context, revelation circumstances, references to civilizations and creation
+- **Personal Experience** → Librarian fetches practical tafsir on personal application and spiritual growth
+- **Connections** → Librarian fetches related verses and thematic connections across the Quran
+- **General Lessons** → Librarian fetches general principles, wisdom, and transformational messages
 
 ---
 
@@ -177,32 +177,6 @@ en-maarif-ul-quran      — Maariful Quran (English, Urdu tradition)
 ## 7. WHAT YOU ARE BUILDING — EXACT SPECIFICATION
 
 ### File 1: `/src/app/api/study/route.ts`
-
-**Purpose:** Server-side API route that calls Claude + Quran MCP
-
-**Input (POST body):**
-```typescript
-{
-  verseKey: string        // e.g. "2:255"
-  lens: string            // vocabulary | structure | context | audience | relevance
-  arabicText: string      // Arabic text of the verse (already fetched by app)
-  translationText: string // English translation (already fetched by app)
-  question: string        // User's specific question (optional)
-}
-```
-
-**Output:**
-```typescript
-{
-  response: string        // Librarian's answer
-  sources: string         // Citation line e.g. "Grounded in quran.ai: fetch_tafsir(2:255, en-ibn-kathir)"
-  error?: string          // Only if something went wrong
-}
-```
-
-**System prompt philosophy — this is critical:**
-```
-You are a Quran study librarian. Your job is to help Muslims access 
 verified knowledge about the Quran — not to reflect for them or give 
 spiritual advice.
 
@@ -218,11 +192,11 @@ When a user asks about a verse:
 
 **Lens-specific instructions for the system prompt:**
 ```
-vocabulary  → Use fetch_word_morphology and fetch_word_concordance
-structure   → Use fetch_tafsir focusing on linguistic analysis
-context     → Use fetch_tafsir focusing on asbab al-nuzul (revelation context)
-audience    → Use fetch_tafsir focusing on who is addressed
-relevance   → Use fetch_tafsir for general commentary
+vocabulary  → Use fetch_word_morphology and fetch_word_concordance for word analysis
+structure   → Use fetch_tafsir focusing on historical context and civilizations mentioned
+context     → Use fetch_tafsir with ar-saadi focusing on personal application
+audience    → Use fetch_tafsir and search_tafsir to find thematic connections across Quran
+relevance   → Use fetch_tafsir for general principles, lessons, and wisdom
 ```
 
 ### File 2: `/src/components/study/StudyLibrarian.tsx`
@@ -256,11 +230,11 @@ interface StudyLibrarianProps {
 **Placeholder text per lens:**
 ```typescript
 const PLACEHOLDERS = {
-  vocabulary: "Ask about a specific word in this verse...",
-  structure: "Ask about the sentence structure or literary devices...",
-  context: "Ask about when or why this verse was revealed...",
-  audience: "Ask about who Allah is addressing here...",
-  relevance: "Ask how scholars connected this verse to daily life..."
+  vocabulary: "Ask about word meanings, purpose, or what makes this phrasing unique...",
+  structure: "Ask about the historical context, revelation circumstances, or creation references...",
+  context: "Ask what this verse means for you personally or how to apply it in your life...",
+  audience: "Ask how this verse connects to other parts of the Quran or surrounding verses...",
+  relevance: "Ask about the fundamental lessons, wisdom, or transformational messages here..."
 }
 ```
 
@@ -446,6 +420,32 @@ export default function StudyLibrarian({
   verseKey,
   selectedLens,
   arabicText,
+**Purpose:** Server-side API route that calls Claude + Quran MCP
+
+**Input (POST body):**
+```typescript
+{
+  verseKey: string        // e.g. "2:255"
+  lens: string            // Language | Quranic World | Personal Experience | Connections | General Lessons
+  arabicText: string      // Arabic text of the verse (already fetched by app)
+  translationText: string // English translation (already fetched by app)
+  question: string        // User's specific question (optional)
+}
+```
+
+**Output:**
+```typescript
+{
+  response: string        // Librarian's answer
+  sources: string         // Citation line e.g. "Grounded in quran.ai: fetch_tafsir(2:255, en-ibn-kathir)"
+  error?: string          // Only if something went wrong
+}
+```
+
+**System prompt philosophy — this is critical:**
+```
+You are a Quran study librarian. Your job is to help Muslims access 
+
   translationText
 }: StudyLibrarianProps) {
   const [question, setQuestion] = useState('')
