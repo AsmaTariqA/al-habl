@@ -531,9 +531,9 @@ export function CircleHomeView() {
           <div style={{ ...cardBg, padding: '1.25rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>
               <span className="muted-kicker" style={{ display: 'flex' }}>Your Reflection</span>
-              <span style={{ fontSize: '0.75rem', color: composerBody.length > 480 ? '#f87171' : 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{composerBody.length}/500</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{composerBody.length}</span>
             </div>
-            <textarea style={{ ...inputStyle, minHeight: '120px', resize: 'none', lineHeight: 1.75 }} maxLength={500} placeholder="Share your reflection on this ayah… (min 15 characters)" value={composerBody} onChange={e => setComposerBody(e.target.value)} onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = 'var(--gold-border)'} onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = 'var(--glass-border)'} />
+            <textarea style={{ ...inputStyle, minHeight: '120px', resize: 'none', lineHeight: 1.75 }} placeholder="Share your reflection on this ayah… (min 15 characters)" value={composerBody} onChange={e => setComposerBody(e.target.value)} onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = 'var(--gold-border)'} onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = 'var(--glass-border)'} />
             {aiQuestions.length > 0 && (
               <div style={{ marginTop: '0.75rem', padding: '1rem', background: 'var(--gold-dim)', border: '1px solid var(--gold-border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <p style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--gold)', fontFamily: 'var(--font-mono)' }}>✦ Deepen your reflection</p>
