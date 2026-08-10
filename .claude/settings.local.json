@@ -10,7 +10,13 @@
       "Bash(curl *)",
       "Bash(npm run *)",
       "Bash(git push *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "WebFetch(domain:api-docs.quran.foundation)",
+      "WebSearch",
+      "WebFetch(domain:api.quran.com)",
+      "WebFetch(domain:api-docs.quran.com)",
+      "Bash(npx eslint *)",
+      "Bash(git stash *)"
     ]
   }
 }

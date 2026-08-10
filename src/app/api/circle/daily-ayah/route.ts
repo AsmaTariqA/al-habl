@@ -10,21 +10,28 @@ export async function GET(request: NextRequest) {
   const admin = getSupabaseAdmin()
   const today = new Date().toISOString().slice(0, 10)
 
+  console.log("[daily-ayah GET] Fetching for date:", today)
+
   const { data, error } = await admin
     .from("daily_ayah_cache")
-    .select("verse_key, chapter_number, verse_number, lens, day_number, is_auto")
+    .select("verse_key, chapter_number, verse_number, day_number, is_auto")
     .eq("date", today)
     .maybeSingle()
 
   if (error) {
     console.error("[daily-ayah GET] Supabase error:", error)
-    return NextResponse.json({ verse_key: getTodayVerseKey(), is_auto: true, day_number: getTodayDayNumber() }, { status: 200 })
+    const result = { verse_key: getTodayVerseKey(), is_auto: true, day_number: getTodayDayNumber() }
+    console.log("[daily-ayah GET] Returning default due to error:", result)
+    return NextResponse.json(result, { status: 200 })
   }
 
   if (!data) {
-    return NextResponse.json({ verse_key: getTodayVerseKey(), is_auto: true, day_number: getTodayDayNumber() }, { status: 200 })
+    const result = { verse_key: getTodayVerseKey(), is_auto: true, day_number: getTodayDayNumber() }
+    console.log("[daily-ayah GET] No data found, returning default:", result)
+    return NextResponse.json(result, { status: 200 })
   }
 
+  console.log("[daily-ayah GET] Returning data from DB:", data)
   return NextResponse.json(data)
 }
 
@@ -37,6 +44,8 @@ export async function POST(request: NextRequest) {
     is_auto?: boolean
   }
 
+  console.log("[daily-ayah POST] Input:", { verse_key, is_auto })
+
   if (!verse_key && !is_auto) {
     return NextResponse.json({ error: "verse_key or is_auto required" }, { status: 400 })
   }
@@ -48,38 +57,57 @@ export async function POST(request: NextRequest) {
   const chapter_number = Number(parts[0])
   const verse_number = Number(parts[1])
 
-  const { error } = await admin
-    .from("daily_ayah_cache")
-    .upsert(
-      {
-        date: today,
-        verse_key: verse_key ?? getTodayVerseKey(),
-        chapter_number,
-        verse_number,
-        is_auto: is_auto ?? false,
-        day_number: getTodayDayNumber(),
-      },
-      { onConflict: "date" },
-    )
+  const payload = {
+    date: today,
+    verse_key: verse_key ?? getTodayVerseKey(),
+    chapter_number,
+    verse_number,
+    is_auto: is_auto ?? false,
+    day_number: getTodayDayNumber(),
+  }
 
-  if (error) {
-    // If upsert with conflict fails (e.g. row exists and some field violates), try UPDATE
+  console.log("[daily-ayah POST] Payload:", payload)
+
+  // First, try to update existing row
+  const { data: existing, error: fetchError } = await admin
+    .from("daily_ayah_cache")
+    .select("id")
+    .eq("date", today)
+    .maybeSingle()
+
+  if (fetchError) {
+    console.error("[daily-ayah POST] Error checking existing row:", fetchError)
+    return NextResponse.json({ error: "Failed to check existing row" }, { status: 500 })
+  }
+
+  let result
+  if (existing) {
+    // Row exists, update it
+    console.log("[daily-ayah POST] Row exists, updating...")
     const { error: updateError } = await admin
       .from("daily_ayah_cache")
-      .update({
-        verse_key: verse_key ?? getTodayVerseKey(),
-        chapter_number,
-        verse_number,
-        is_auto: is_auto ?? false,
-        day_number: getTodayDayNumber(),
-      })
+      .update(payload)
       .eq("date", today)
 
     if (updateError) {
-      console.error("[daily-ayah POST] Supabase error:", updateError)
-      return NextResponse.json({ error: "Failed to save" }, { status: 500 })
+      console.error("[daily-ayah POST] Update error:", updateError)
+      return NextResponse.json({ error: "Failed to update" }, { status: 500 })
     }
+    console.log("[daily-ayah POST] Successfully updated")
+  } else {
+    // Row doesn't exist, insert it
+    console.log("[daily-ayah POST] Row doesn't exist, inserting...")
+    const { error: insertError } = await admin
+      .from("daily_ayah_cache")
+      .insert([payload])
+
+    if (insertError) {
+      console.error("[daily-ayah POST] Insert error:", insertError)
+      return NextResponse.json({ error: "Failed to insert" }, { status: 500 })
+    }
+    console.log("[daily-ayah POST] Successfully inserted")
   }
 
-  return NextResponse.json({ success: true, verse_key: verse_key ?? getTodayVerseKey() })
+  console.log("[daily-ayah POST] Success, saved verse_key:", payload.verse_key)
+  return NextResponse.json({ success: true, verse_key: payload.verse_key })
 }

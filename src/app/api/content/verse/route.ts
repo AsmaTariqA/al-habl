@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const [verseWithTextRes, verseWithTransRes, chapterRes, audioRes] = await Promise.all([
-      fetch(`${apiUrl}/content/api/v4/verses/by_key/${verseKey}?fields=text_uthmani`, { headers, signal: controller.signal }),
-      fetch(`${apiUrl}/content/api/v4/verses/by_key/${verseKey}?words=true&translations=131`, { headers, signal: controller.signal }),
+      fetch(`${apiUrl}/content/api/v4/verses/by_key/${verseKey}?fields=text_uthmani&word_fields=text_uthmani`, { headers, signal: controller.signal }),
+      fetch(`${apiUrl}/content/api/v4/verses/by_key/${verseKey}?words=true&translations=131&word_fields=text_uthmani,translation,transliteration`, { headers, signal: controller.signal }),
       fetch(`${apiUrl}/content/api/v4/chapters/${chapterNumber}`, { headers, signal: controller.signal }),
    fetch(`${apiUrl}/content/api/v4/recitations/7/by_ayah/${verseKey}`, { headers, signal: controller.signal }),
     ])

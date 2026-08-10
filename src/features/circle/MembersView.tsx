@@ -15,6 +15,25 @@ function getMemberKey(member: Partial<RoomMember>) {
   return `unknown-${Math.random().toString(36).slice(2)}`
 }
 
+/**
+ * Only show a join date if the parsed timestamp actually looks like a
+ * real room-membership date. The QF "Get room members" endpoint does
+ * not document a per-room join field, so this is best-effort: if the
+ * date is missing, in the future, or older than the Quran Foundation
+ * platform itself, we hide the line rather than display a misleading
+ * value.
+ */
+function formatJoinLine(joinedAt: string | undefined): string | null {
+  if (!joinedAt || !joinedAt.trim()) return null
+  const parsed = new Date(joinedAt)
+  if (Number.isNaN(parsed.getTime())) return null
+  const now = Date.now()
+  if (parsed.getTime() > now + 24 * 60 * 60 * 1000) return null
+  // Anything before the year 2000 is implausible as a QF room-join date.
+  if (parsed.getUTCFullYear() < 2000) return null
+  return `Joined ${parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+}
+
 export function MembersView() {
   const [roomId, setRoomId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -127,6 +146,7 @@ export function MembersView() {
                 const key = getMemberKey(member)
                 const active = member.has_reflected_today
                 const isAdmin = member.user_id === room?.created_by
+                const joinLine = formatJoinLine(member.joined_at)
                 return (
                   <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', background: 'var(--glass)', border: `1px solid ${active ? 'var(--gold-border)' : 'var(--glass-border)'}`, borderRadius: 'var(--radius-md)', transition: 'border-color 0.15s ease' }}>
                     <div style={{ width: '40px', height: '40px', flexShrink: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 600, background: active ? 'var(--gold-dim2)' : 'var(--glass-strong)', border: `1px solid ${active ? 'var(--gold-border)' : 'var(--glass-border)'}`, color: active ? 'var(--gold)' : 'var(--muted)' }}>
@@ -142,9 +162,7 @@ export function MembersView() {
                         )}
                       </div>
                       <p style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                        {member.joined_at?.trim()
-                          ? `Joined ${new Date(member.joined_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                          : 'Join date unavailable'}
+                        {joinLine ?? "Join date unavailable"}
                       </p>
                     </div>
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: active ? 'var(--gold)' : 'var(--glass-border)', flexShrink: 0, boxShadow: active ? '0 0 6px var(--gold)' : 'none', transition: 'all 0.2s ease' }} />

@@ -208,17 +208,36 @@ function normalizeTranslations(value: unknown): Translation[] {
 }
 
 function normalizeWords(value: unknown): Word[] {
-  return asArray(value).map((entry, index) => {
-    const record = asRecord(entry)
-    const translation = asRecord(record?.translation)
-    const transliteration = asRecord(record?.transliteration)
-    return {
-      position: readNumber(record?.position, index + 1),
-      text_uthmani: readString(record?.text_uthmani) || readString(record?.text),
-      translation: { text: readString(translation?.text) || readString(record?.translation) },
-      transliteration: { text: readString(transliteration?.text) || readString(record?.transliteration) },
-    }
-  })
+  // The QF API returns a trailing "end" marker in the words array for
+  // every verse (char_type_name === "end", text is the verse numeral).
+  // It is NOT a word of the ayah and must not be rendered in the
+  // word-by-word grid — otherwise the grid shows stray glyphs and the
+  // verse numeral where the last word should be.
+  return asArray(value)
+    .map((entry) => asRecord(entry))
+    .filter((record): record is Record<string, unknown> =>
+      Boolean(record) && record!.char_type_name === "word"
+    )
+    .map((record, index) => {
+      const translation = asRecord(record.translation)
+      const transliteration = asRecord(record.transliteration)
+      // Prefer text_uthmani (real Arabic Unicode glyphs) when present.
+      // Fall back to `text` only as a last resort — `text` on QF v4 can
+      // be a private-use Quran-complex-font codepoint that renders as
+      // tofu in standard Arabic fonts.
+      const arabicText =
+        readString(record.text_uthmani) || readString(record.text)
+      return {
+        position: readNumber(record.position, index + 1),
+        text_uthmani: arabicText,
+        translation: {
+          text: readString(translation?.text) || readString(record.translation),
+        },
+        transliteration: {
+          text: readString(transliteration?.text) || readString(record.transliteration),
+        },
+      }
+    })
 }
 
 function normalizeVerse(source: unknown): Verse | null {
@@ -703,8 +722,14 @@ export async function logActivityDay(
 }
 
 
-export async function createGoal(accessToken: string, type: string, target: number) {
-  const data = await safeFetch<unknown>("/goals", { method: "POST", body: JSON.stringify({ type, target }) }, accessToken, true, AUTH_BASE)
+export async function createGoal(accessToken: string, type: string, target: number, mushafId = 1) {
+  const data = await safeFetch<unknown>(
+    "/goals",
+    { method: "POST", body: JSON.stringify({ type, target, mushafId }) },
+    accessToken,
+    true,
+    AUTH_BASE
+  )
   return normalizeGoals({ goals: [pickPayload(data, ["goal", "data"]) ?? data] })[0] ?? null
 }
 
@@ -940,22 +965,38 @@ function coalesceJoinedAtRaw(value: unknown): string {
   return text
 }
 
+/**
+ * The QF "Get room members" endpoint does NOT document a per-room join
+ * timestamp — only user-profile fields (id, username, isAdmin, ...).
+ * In practice the response sometimes includes a `createdAt` field that
+ * turns out to be the user's *account* creation date, not the
+ * membership join date. Showing that as "Joined today" is misleading
+ * for accounts created today who joined an old room, and for old
+ * accounts who joined a brand-new room it would show a date from years
+ * ago.
+ *
+ * Only treat a timestamp as a real room-join date if the field name
+ * explicitly implies membership (joinedAt / joined_at / memberSince /
+ * membership.*). Account-level fields (user.createdAt, user.joiningYear)
+ * are deliberately ignored — they belong on a "Member since" line, not
+ * a "Joined" line.
+ */
 function readMemberJoinedAt(record: Record<string, unknown>): string {
   const participation = asRecord(record.participant) ?? asRecord(record.membership)
   const user = asRecord(record.user)
 
   const candidates: unknown[] = [
     record.joined_at,
-    record.createdAt,
-    record.created_at,
     record.joinedAt,
+    record.memberSince,
+    record.member_since,
     participation?.joined_at,
     participation?.joinedAt,
     participation?.created_at,
     participation?.createdAt,
-    user?.joined_at,
-    user?.joinedAt,
+    participation?.memberSince,
     user?.member_since,
+    user?.memberSince,
   ]
   for (const value of candidates) {
     const text = coalesceJoinedAtRaw(value)

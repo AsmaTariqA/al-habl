@@ -177,13 +177,23 @@ export function useCircle(initialRoomId?: string | null) {
   }, [queryClient, roomId]);
 
   const postReflection = useCallback(
-    async (body: string, lens: Lens) => {
+    async (body: string, lens: Lens, verseKey?: string) => {
       const token = await ensureAccessToken();
       const rid = roomIdRef.current;
       if (!token || !rid || !userId) return null;
 
       setSubmitting(true);
       setReflectionError(null);
+
+      // SINGLE SOURCE OF TRUTH for the reflection target.
+      // If the caller (e.g. CircleHomeView) supplies a verseKey — which
+      // comes from useAyah and therefore reflects BOTH the daily rotation
+      // default AND the user's manual selection via AyahSelector — use it.
+      // Fall back to the deterministic date-based default ONLY when the
+      // caller did not pass one (e.g. a legacy call site). This is the
+      // exact verseKey that the UI is showing, the one the user is
+      // reflecting on, and the one that must reach Quran.com.
+      const targetVerseKey = verseKey?.trim() ? verseKey : getTodayVerseKey();
 
       const profileData =
         queryClient.getQueryData<UserProfile | null>(qfKeys.profile()) ??
@@ -208,9 +218,9 @@ export function useCircle(initialRoomId?: string | null) {
         username,
         avatar,
         body,
-        tags: [lens, getTodayVerseKey()],
+        tags: [lens, targetVerseKey],
         lens,
-        verse_key: getTodayVerseKey(),
+        verse_key: targetVerseKey,
         created_at: new Date().toISOString(),
         like_count: 0,
         comment_count: 0,
@@ -225,7 +235,7 @@ export function useCircle(initialRoomId?: string | null) {
         token,
         body,
         rid,
-        optimisticPost.verse_key ?? getTodayVerseKey(),
+        targetVerseKey,
         lens,
         { userId, username, avatar },
       ).catch(() => null);
@@ -265,7 +275,7 @@ export function useCircle(initialRoomId?: string | null) {
       await logActivityDay(
         token,
         optimisticPost.created_at.slice(0, 10),
-        optimisticPost.verse_key ?? getTodayVerseKey(),
+        optimisticPost.verse_key ?? targetVerseKey,
       ).catch(() => null);
 
       void queryClient.invalidateQueries({ queryKey: qfKeys.streaks() });

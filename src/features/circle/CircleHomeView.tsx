@@ -1,17 +1,17 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AppShell } from "@/components/circle/AppShell"
 import { useAyah } from "@/hooks/useAyah"
 import { useCircle } from "@/hooks/useCircle"
 import { getClientAccessToken } from "@/lib/client-access"
-import { useQfStreaksQuery } from "@/hooks/qf/useQfStreaks"
 import { addToCollection, bookmarkVerse, createCollection, createNote, getCollections } from "@/lib/qf-api"
 import { LENSES, LENS_LABELS, LENS_PROMPTS, getTodayLens, type Lens } from "@/lib/circle-constants"
 import { session } from "@/lib/session"
 import { AyahSelector } from "@/components/circle/AyahSelector"
 import StudyLibrarian from "@/components/study/StudyLibrarian"
+import { useMinWidth } from "@/hooks/useMediaQuery"
 import type { VerseCollection } from "@/types/circle"
 
 function formatTime(seconds: number) {
@@ -85,6 +85,125 @@ function Sheet({ open, title, kicker, onClose, children }: { open: boolean; titl
 
 const iconBtnStyle: React.CSSProperties = { width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', background: 'var(--glass-strong)', color: 'var(--muted)', cursor: 'pointer', transition: 'all 0.15s ease', flexShrink: 0 }
 
+/* ────────────────────────────────────────────────────────────────
+   TAFSIR RENDERING — fixes the raw-HTML bug.
+
+   The tafsir API returns a string containing literal HTML tags
+   (e.g. "<h2>Refuting the Claim...</h2><p>This and the following...")
+   Previously this was dumped straight into a <p> as plain text, so
+   the tags themselves appeared on screen instead of being applied
+   as formatting.
+
+   parseTafsirHtml() walks the string with the browser's own HTML
+   parser (DOMParser — safe, doesn't execute scripts) and converts
+   it into a small structured array of { type, text } blocks that we
+   render as real React elements with our own typography — this
+   avoids dangerouslySetInnerHTML entirely, so there's no injection
+   risk even though the source is a third-party API response.
+   ──────────────────────────────────────────────────────────────── */
+
+type TafsirBlock =
+  | { type: "heading"; text: string }
+  | { type: "paragraph"; text: string }
+
+function parseTafsirHtml(raw: string): TafsirBlock[] {
+  if (!raw) return []
+
+  // Guard for SSR — DOMParser only exists in the browser. If this
+  // ever runs server-side, fall back to a plain paragraph so nothing
+  // crashes; the client render will replace it with the parsed version.
+  if (typeof window === "undefined" || typeof DOMParser === "undefined") {
+    return [{ type: "paragraph", text: raw.replace(/<[^>]*>/g, "") }]
+  }
+
+  const doc = new DOMParser().parseFromString(raw, "text/html")
+  const blocks: TafsirBlock[] = []
+
+  doc.body.childNodes.forEach((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent?.trim()
+      if (text) blocks.push({ type: "paragraph", text })
+      return
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const el = node as HTMLElement
+    const text = el.textContent?.trim()
+    if (!text) return
+
+    if (/^h[1-6]$/i.test(el.tagName)) {
+      blocks.push({ type: "heading", text })
+    } else {
+      blocks.push({ type: "paragraph", text })
+    }
+  })
+
+  // Fallback: if parsing produced nothing (unexpected structure),
+  // strip tags manually rather than showing an empty box.
+  if (blocks.length === 0) {
+    const stripped = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+    if (stripped) blocks.push({ type: "paragraph", text: stripped })
+  }
+
+  return blocks
+}
+
+function TafsirContent({ raw, collapsed }: { raw: string; collapsed: boolean }) {
+  const blocks = useMemo(() => parseTafsirHtml(raw), [raw])
+
+  // Collapsed preview: show roughly the first 2 short paragraphs'
+  // worth of text as a plain excerpt, no headings, so the "closed"
+  // state reads as a clean teaser rather than a truncated mid-sentence
+  // cut. Full view renders every block with real heading/paragraph
+  // typography.
+  if (collapsed) {
+    const previewText = blocks
+      .filter((b) => b.type === "paragraph")
+      .map((b) => b.text)
+      .join(" ")
+      .slice(0, 220)
+      .trim()
+
+    return (
+      <p style={{ fontSize: '0.875rem', lineHeight: 1.8, color: 'var(--muted)' }}>
+        {previewText}
+        {previewText.length >= 220 ? "…" : ""}
+      </p>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+      {blocks.map((block, i) =>
+        block.type === "heading" ? (
+          <h4
+            key={i}
+            style={{
+              fontSize: '0.95rem',
+              fontWeight: 700,
+              letterSpacing: '-0.01em',
+              color: 'var(--text)',
+              marginTop: i === 0 ? 0 : '0.25rem',
+            }}
+          >
+            {block.text}
+          </h4>
+        ) : (
+          <p
+            key={i}
+            style={{
+              fontSize: '0.875rem',
+              lineHeight: 1.85,
+              color: 'var(--muted)',
+            }}
+          >
+            {block.text}
+          </p>
+        )
+      )}
+    </div>
+  )
+}
+
 export function CircleHomeView() {
   const router = useRouter()
   const [roomId, setRoomId] = useState<string | null>(null)
@@ -92,7 +211,9 @@ export function CircleHomeView() {
   const [composerBody, setComposerBody] = useState("")
   const [commentsOpen, setCommentsOpen] = useState<Record<string, boolean>>({})
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({})
+  const [expandedPosts, setExpandedPosts] = useState<Record<string, boolean>>({})
   const [ayahExpanded, setAyahExpanded] = useState(false)
+  const [tafsirFullyExpanded, setTafsirFullyExpanded] = useState(false)
   const [selectedTranslationId, setSelectedTranslationId] = useState<number | null>(131)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false)
@@ -112,14 +233,12 @@ export function CircleHomeView() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [aiQuestions, setAiQuestions] = useState<string[]>([])
   const [selectedOverrideVerseKey, setSelectedOverrideVerseKey] = useState<string | undefined>(undefined)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  const streakQ = useQfStreaksQuery({ enabled: Boolean(roomId) })
-  const streakCount =
-    streakQ.data?.current_streak !== undefined &&
-    streakQ.data.current_streak !== null
-      ? streakQ.data.current_streak
-      : null
+  // Right panel from AppShell becomes visible at >=1280px (matches globals.css).
+  // We use this to gate the "Members" trigger buttons so they only show when
+  // the member list is actually disabled (i.e., not already showing).
+  const rightPanelEnabled = useMinWidth(1280)
 
   const { verse, chapter, audio, tafsir, loading: ayahLoading, tafsirLoading, error: ayahError, lens, verseKey, dayNumber, fetchVerse, fetchTafsirForToday } = useAyah(selectedOverrideVerseKey)
   const { room, members, posts, commentsByPost, loadingComments, loading, submitting, error, postReflection, likePost, loadComments, addComment } = useCircle(roomId)
@@ -132,6 +251,7 @@ export function CircleHomeView() {
   const reflectedCount = uniqueMembers.filter((m) => m.has_reflected_today).length
   const selectedLensPrompts = LENS_PROMPTS[selectedLens]
   const featuredPrompt = selectedLensPrompts[(dayNumber - 1) % selectedLensPrompts.length]
+
   useEffect(() => {
     if (roomId) return
 
@@ -210,12 +330,22 @@ export function CircleHomeView() {
     finally { setNoteLoading(false); setTimeout(() => setActionMessage(null), 2500) }
   }
 
-  async function handleExpandAyah() { const next = !ayahExpanded; setAyahExpanded(next); if (next && !tafsir) await fetchTafsirForToday() }
+  async function handleExpandAyah() {
+    const next = !ayahExpanded
+    setAyahExpanded(next)
+    setTafsirFullyExpanded(false) // always reset to collapsed excerpt when reopening
+    if (next && !tafsir) await fetchTafsirForToday()
+  }
 
   async function handleSubmitReflection() {
     const body = composerBody.trim()
     if (body.length < 15) { setActionMessage("Reflection must be at least 15 characters."); return }
-    const created = await postReflection(body, selectedLens)
+    // Pass the currently selected ayah (which already respects the user's
+    // manual selection via AyahSelector — useAyah's verseKey is the single
+    // source of truth). Without this, useCircle would fall back to the
+    // auto-rotated daily default and the reflection would be filed against
+    // the wrong ayah on Quran.com.
+    const created = await postReflection(body, selectedLens, verseKey)
     if (created) {
       setComposerBody("")
       setSelectedLens(lens)
@@ -225,6 +355,8 @@ export function CircleHomeView() {
 
   async function toggleComments(postId: string) { const next = !commentsOpen[postId]; setCommentsOpen(c => ({ ...c, [postId]: next })); if (next) await loadComments(postId) }
   async function submitComment(postId: string) { const body = commentDrafts[postId]?.trim(); if (!body) return; const created = await addComment(postId, body); if (created) setCommentDrafts(c => ({ ...c, [postId]: "" })) }
+  function toggleExpanded(postId: string) { setExpandedPosts(s => ({ ...s, [postId]: !s[postId] })) }
+  function needsCollapse(body: string, charBudget = 220) { return (body ?? "").trim().length > charBudget }
 
   const cardBg: React.CSSProperties = { background: 'var(--glass)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-lg)' }
   const inputStyle: React.CSSProperties = { width: '100%', padding: '0.65rem 1rem', background: 'var(--glass-strong)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'var(--font-sans)', fontSize: '0.9rem', lineHeight: 1.65, outline: 'none', transition: 'border-color 0.15s ease' }
@@ -275,12 +407,29 @@ export function CircleHomeView() {
               <p style={{ fontSize: '0.9rem', fontWeight: 600, letterSpacing: '-0.02em' }}>{room?.name ?? "Your Circle"}</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <button type="button" onClick={() => setRightPanelOpen(!rightPanelOpen)} style={{ ...iconBtnStyle, width: 'auto', padding: '0.35rem 0.7rem', fontSize: '0.75rem', color: 'var(--muted)' }}>Members</button>
-              {streakCount !== null && (
-                <div style={{ padding: '0.25rem 0.6rem', borderRadius: '99px', border: '1px solid var(--gold-border)', background: 'var(--gold-dim)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--font-mono)' }}>
-                  {streakCount}d 🔥
-                </div>
-              )}
+              <button type="button" onClick={() => setRightPanelOpen(!rightPanelOpen)} style={{ ...iconBtnStyle, width: 'auto', padding: '0.35rem 0.7rem', fontSize: '0.75rem', color: 'var(--muted)', display: rightPanelOpen ? 'none' : undefined }}>Members</button>
+              <AyahSelector
+                currentVerseKey={verseKey}
+                onSelect={(vk) => {
+                  if (typeof window !== "undefined") {
+                    try {
+                      for (const key of Object.keys(localStorage)) {
+                        if (key.startsWith("qf_daily_ayah:")) {
+                          const raw = localStorage.getItem(key)
+                          if (raw) {
+                            try {
+                              const parsed = JSON.parse(raw) as { verse?: { verse_key?: string } }
+                              if (parsed.verse?.verse_key && parsed.verse.verse_key !== vk) localStorage.removeItem(key)
+                            } catch { localStorage.removeItem(key) }
+                          }
+                        }
+                      }
+                    } catch {}
+                  }
+                  setSelectedOverrideVerseKey(vk)
+                  void fetchVerse(vk)
+                }}
+              />
               <button type="button" aria-label="Log out" style={iconBtnStyle}
                 onClick={async () => { if (!window.confirm("Log out?")) return; await fetch("/api/auth/logout", { method: "POST" }); localStorage.clear(); window.location.href = "/auth/login" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" strokeLinecap="round"/><polyline points="16 17 21 12 16 7" strokeLinecap="round" strokeLinejoin="round"/><line x1="21" y1="12" x2="9" y2="12" strokeLinecap="round"/></svg>
@@ -299,8 +448,44 @@ export function CircleHomeView() {
             <p style={{ fontSize: '0.825rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>Day {dayNumber} · {verseKey}</p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => setRightPanelOpen(!rightPanelOpen)}
+              // Show only when the right panel from AppShell is disabled (<1280px)
+              // and the overlay isn't already open. Mirrors globals.css rule exactly.
+              style={{ ...iconBtnStyle, width: 'auto', padding: '0.35rem 0.7rem', fontSize: '0.75rem', color: 'var(--muted)', display: rightPanelEnabled || rightPanelOpen ? 'none' : undefined }}
+            >
+              Members
+            </button>
             <button type="button" onClick={() => setInviteOpen(true)} className="button-secondary" style={{ fontSize: '0.825rem', padding: '0.5rem 1rem' }}>+ Invite Members</button>
-            <AyahSelector currentVerseKey={verseKey} onSelect={(vk) => { if (typeof window !== "undefined") localStorage.removeItem(`qf_daily_ayah:${vk}`); setSelectedOverrideVerseKey(vk); setTimeout(() => void fetchVerse(), 0) }} />
+            <AyahSelector
+              currentVerseKey={verseKey}
+              onSelect={(vk) => {
+                // Drop any stale cached verse that no longer matches the
+                // new verse key, otherwise the localStorage cache can
+                // briefly resurrect the previous ayah on the next mount.
+                if (typeof window !== "undefined") {
+                  try {
+                    for (const key of Object.keys(localStorage)) {
+                      if (key.startsWith("qf_daily_ayah:")) {
+                        const raw = localStorage.getItem(key)
+                        if (raw) {
+                          try {
+                            const parsed = JSON.parse(raw) as { verse?: { verse_key?: string } }
+                            if (parsed.verse?.verse_key !== vk) {
+                              localStorage.removeItem(key)
+                            }
+                          } catch {
+                            localStorage.removeItem(key)
+                          }
+                        }
+                      }
+                    }
+                  } catch { /* localStorage may be unavailable */ }
+                }
+                setSelectedOverrideVerseKey(vk)
+              }}
+            />
           </div>
         </div>
 
@@ -365,27 +550,113 @@ export function CircleHomeView() {
 
               {ayahExpanded && (
                 <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {/* Tafsir — now parsed + typography-styled, collapsed
+                      excerpt by default with a "Read full tafsir" expand */}
                   <div style={{ padding: '1rem', background: 'var(--glass-strong)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                       <span className="muted-kicker" style={{ display: 'flex' }}>Ibn Kathir</span>
                       {tafsirLoading && <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Loading…</span>}
                     </div>
-                    {tafsirLoading ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{['100%','90%','75%'].map((w,i) => <div key={i} className="skeleton" style={{ height: '0.75rem', width: w, borderRadius: '99px' }} />)}</div>
-                      : <p style={{ fontSize: '0.875rem', lineHeight: 1.8, color: 'var(--muted)' }}>{tafsir?.text ?? "Tafsir not available for this verse."}</p>}
-                  </div>
-                  {!ayahLoading && verse?.words && (
-                    <div style={{ padding: '1rem', background: 'var(--glass-strong)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)' }}>
-                      <span className="muted-kicker" style={{ display: 'flex', marginBottom: '0.75rem' }}>Word by word</span>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.5rem' }}>
-                        {verse.words.map(word => (
-                          <div key={word.position} style={{ padding: '0.6rem', background: 'var(--glass)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-                            <p dir="rtl" translate="no" style={{ fontFamily: 'var(--font-arabic)', fontSize: '1.1rem', color: 'var(--text)', marginBottom: '0.35rem' }}>{word.text_uthmani}</p>
-                            <p style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>{word.translation.text}</p>
-                          </div>
-                        ))}
+
+                    {tafsirLoading ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {['100%','90%','75%'].map((w,i) => <div key={i} className="skeleton" style={{ height: '0.75rem', width: w, borderRadius: '99px' }} />)}
                       </div>
-                    </div>
-                  )}
+                    ) : tafsir?.text ? (
+                      <>
+                        <TafsirContent raw={tafsir.text} collapsed={!tafsirFullyExpanded} />
+                        <button
+                          type="button"
+                          onClick={() => setTafsirFullyExpanded((v) => !v)}
+                          style={{
+                            marginTop: '0.75rem',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            color: 'var(--gold)',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: 0,
+                            textDecoration: 'underline',
+                            textUnderlineOffset: '3px',
+                          }}
+                        >
+                          {tafsirFullyExpanded ? "Show less" : "Read full tafsir"}
+                        </button>
+                      </>
+                    ) : (
+                      <p style={{ fontSize: '0.875rem', lineHeight: 1.8, color: 'var(--muted)' }}>Tafsir not available for this verse.</p>
+                    )}
+                  </div>
+
+                 {!ayahLoading && verse?.words && (
+  <div style={{ padding: '1rem', background: 'var(--glass-strong)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)' }}>
+    <span className="muted-kicker" style={{ display: 'flex', marginBottom: '0.75rem' }}>Word by word</span>
+
+    {/*
+      FIX 1 — dir="rtl" on the grid itself.
+      Without this, CSS grid's auto-fill/auto-flow places items in
+      left-to-right document order regardless of the text inside them,
+      so word #1 of the ayah visually lands top-LEFT instead of
+      top-RIGHT — reversing the reading order of the whole grid even
+      though each individual word's text was already correctly RTL.
+      Setting dir="rtl" on the grid container makes the grid's own
+      auto-placement flow right-to-left, matching how the ayah is
+      actually read.
+
+      FIX 2 — extra Quranic-script font fallbacks + font-feature-settings.
+      text_uthmani contains Uthmani-script-specific characters (small
+      high marks, madd signs, sukun variants) that a general Arabic
+      typeface like Amiri doesn't always cover. Adding known Quranic
+      fonts as fallbacks (KFGQPC/UthmanicHafs, me_quran) prevents
+      missing-glyph boxes. font-feature-settings enables ligature
+      substitution some fonts need for these marks to combine
+      correctly with the base letter instead of floating separately.
+    */}
+    <div
+      dir="rtl"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+        gap: '0.5rem',
+      }}
+    >
+      {verse.words.map(word => (
+        <div
+          key={word.position}
+          style={{
+            padding: '0.6rem',
+            background: 'var(--glass)',
+            border: '1px solid var(--glass-border)',
+            borderRadius: 'var(--radius-sm)',
+            textAlign: 'center',
+          }}
+        >
+          <p
+            dir="rtl"
+            translate="no"
+            lang="ar"
+            style={{
+              fontFamily:
+                "var(--font-arabic), 'KFGQPC Uthmanic Script HAFS', 'me_quran', 'Amiri Quran', 'Scheherazade New', serif",
+              fontFeatureSettings: '"liga" 1, "calt" 1',
+              fontSize: '1.15rem',
+              lineHeight: 1.8,
+              color: 'var(--text)',
+              marginBottom: '0.35rem',
+              unicodeBidi: 'isolate',
+            }}
+          >
+            {word.text_uthmani}
+          </p>
+          <p style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
+            {word.translation.text}
+          </p>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
                   {verse?.translations && verse.translations.length > 1 && (
                     <div style={{ padding: '1rem', background: 'var(--glass-strong)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)' }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
@@ -424,110 +695,9 @@ export function CircleHomeView() {
             </div>
           </div>
 
-          {/* Feed */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="muted-kicker" style={{ display: 'flex' }}>Reflections</span>
-              {error && <p style={{ fontSize: '0.75rem', color: '#f87171' }}>{error}</p>}
-            </div>
-            {loading ? <FeedSkeleton /> : posts.length === 0 ? (
-              <div style={{ padding: '2.5rem 2rem', textAlign: 'center', background: 'var(--gold-dim)', border: '1px solid var(--gold-border)', borderRadius: 'var(--radius-lg)' }}>
-                <p style={{ fontWeight: 600, color: 'var(--gold)', marginBottom: '0.35rem' }}>Be the first to reflect today</p>
-                <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Your circle is waiting for your reflection.</p>
-              </div>
-            ) : (
-              (() => {
-                const groups: { label: string; items: typeof posts }[] = []
-                posts.forEach(post => {
-                  const d = new Date(post.created_at)
-                  const now = new Date()
-                  const isToday = d.toDateString() === now.toDateString()
-                  const isYesterday = d.toDateString() === new Date(Date.now() - 86400000).toDateString()
-                  const label = isToday ? "Today" : isYesterday ? "Yesterday" : d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
-                  
-                  const lastGroup = groups[groups.length - 1]
-                  if (lastGroup && lastGroup.label === label) {
-                    lastGroup.items.push(post)
-                  } else {
-                    groups.push({ label, items: [post] })
-                  }
-                })
-                
-                return groups.map(group => (
-                  <div key={group.label} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', margin: '0.5rem 0 0.25rem' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.05em', color: 'var(--muted)', textTransform: 'uppercase' }}>{group.label}</span>
-                      <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)', marginLeft: '1rem' }} />
-                    </div>
-                    {group.items.map(post => (
-                      <article key={post.id} style={{ ...cardBg, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--gold-border)'}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--glass-border)'}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                            <Avatar name={post.username} size="sm" />
-                            <div>
-                              <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text)', letterSpacing: '-0.01em' }}>{post.username}</p>
-                              <p style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{timeAgo(post.created_at)}</p>
-                            </div>
-                          </div>
-                          <span className="badge badge-gold" style={{ flexShrink: 0 }}>{LENS_LABELS[(post.lens as Lens) ?? "relevance"]}</span>
-                        </div>
-                        <p style={{ fontSize: '0.9rem', lineHeight: 1.8, color: 'var(--text-soft)' }}>{post.body}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                          <button type="button" onClick={() => void likePost(post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.875rem', color: post.liked_by_me ? 'var(--gold)' : 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', transition: 'color 0.15s ease' }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill={post.liked_by_me ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5"><path d="M12 20s-7-4.3-7-10a4 4 0 0 1 7-2.4A4 4 0 0 1 19 10c0 5.7-7 10-7 10Z"/></svg>
-                            <span>{post.like_count}</span>
-                          </button>
-                          <button type="button" onClick={() => void toggleComments(post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.875rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', transition: 'color 0.15s ease' }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 6h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3V8a2 2 0 0 1 2-2Z"/></svg>
-                            <span>{post.comment_count}</span>
-                          </button>
-                        </div>
-                        {commentsOpen[post.id] && (
-                          <div style={{ padding: '0.875rem', background: 'var(--glass-strong)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {loadingComments[post.id] ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <div className="skeleton" style={{ height: '0.75rem', width: '100%', borderRadius: '99px' }} />
-                                <div className="skeleton" style={{ height: '0.75rem', width: '75%', borderRadius: '99px' }} />
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                {(commentsByPost[post.id] ?? []).map(c => (
-                                  <div key={c.id}>
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.2rem' }}><span style={{ color: 'var(--text)', fontWeight: 500 }}>{c.username}</span>{' · '}{timeAgo(c.created_at)}</p>
-                                    <p style={{ fontSize: '0.875rem', color: 'var(--text-soft)', lineHeight: 1.6 }}>{c.body}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <input style={{ ...inputStyle, flex: 1 }} placeholder="Write a comment…" value={commentDrafts[post.id] ?? ""} onChange={e => setCommentDrafts(c => ({ ...c, [post.id]: e.target.value }))} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitComment(post.id) } }} onFocus={e => (e.target as HTMLInputElement).style.borderColor = 'var(--gold-border)'} onBlur={e => (e.target as HTMLInputElement).style.borderColor = 'var(--glass-border)'} />
-                              <button type="button" onClick={() => void submitComment(post.id)}
-                                style={{ padding: '0 0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--gold-border)', background: 'var(--gold-dim)', color: 'var(--gold)', cursor: 'pointer', fontSize: '1rem', transition: 'all 0.15s ease' }}
-                                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--gold)'; (e.currentTarget as HTMLButtonElement).style.color = '#0F0E0C' }}
-                                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--gold-dim)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--gold)' }}>→</button>
-                            </div>
-                          </div>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                ))
-              })()
-            )}
-          </div>
-          {/* Study Librarian */}
-          {verse && (
-            <StudyLibrarian
-              verseKey={verseKey}
-              selectedLens={selectedLens}
-              arabicText={verse.text_uthmani}
-              translationText={activeTranslation?.text ?? ''}
-            />
-          )}
-
-          {/* Composer */}
+          {/* Composer — moved up, directly after the lens prompt and
+              before tafsir/community, so the user's own reflection is
+              formed before reading Ibn Kathir or others' posts */}
           <div style={{ ...cardBg, padding: '1.25rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>
               <span className="muted-kicker" style={{ display: 'flex' }}>Your Reflection</span>
@@ -553,6 +723,136 @@ export function CircleHomeView() {
                 {submitting ? "Posting…" : "Post Reflection"}
               </button>
             </div>
+          </div>
+
+          {/* Study Librarian — after the user's own reflection, framed
+              as "go deeper" rather than a starting point */}
+          {verse && (
+            <StudyLibrarian
+              verseKey={verseKey}
+              selectedLens={selectedLens}
+              arabicText={verse.text_uthmani}
+              translationText={activeTranslation?.text ?? ''}
+            />
+          )}
+
+          {/* Feed — community reflections, last: social/discussion layer */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="muted-kicker" style={{ display: 'flex' }}>Reflections</span>
+              {error && <p style={{ fontSize: '0.75rem', color: '#f87171' }}>{error}</p>}
+            </div>
+            {loading ? <FeedSkeleton /> : posts.length === 0 ? (
+              <div style={{ padding: '2.5rem 2rem', textAlign: 'center', background: 'var(--gold-dim)', border: '1px solid var(--gold-border)', borderRadius: 'var(--radius-lg)' }}>
+                <p style={{ fontWeight: 600, color: 'var(--gold)', marginBottom: '0.35rem' }}>Be the first to reflect today</p>
+                <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Your circle is waiting for your reflection.</p>
+              </div>
+            ) : (
+              (() => {
+                const groups: { label: string; items: typeof posts }[] = []
+                posts.forEach(post => {
+                  const d = new Date(post.created_at)
+                  const now = new Date()
+                  const isToday = d.toDateString() === now.toDateString()
+                  const isYesterday = d.toDateString() === new Date(Date.now() - 86400000).toDateString()
+                  const label = isToday ? "Today" : isYesterday ? "Yesterday" : d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
+
+                  const lastGroup = groups[groups.length - 1]
+                  if (lastGroup && lastGroup.label === label) {
+                    lastGroup.items.push(post)
+                  } else {
+                    groups.push({ label, items: [post] })
+                  }
+                })
+
+                return groups.map(group => (
+                  <div key={group.label} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', margin: '0.5rem 0 0.25rem' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.05em', color: 'var(--muted)', textTransform: 'uppercase' }}>{group.label}</span>
+                      <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)', marginLeft: '1rem' }} />
+                    </div>
+                    {group.items.map(post => {
+                      const expanded = !!expandedPosts[post.id]
+                      const collapsible = needsCollapse(post.body)
+                      return (
+                      <article key={post.id} style={{ ...cardBg, padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--gold-border)'}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--glass-border)'}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', minHeight: 32 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                            <Avatar name={post.username} size="sm" />
+                            <p style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text)', letterSpacing: '-0.01em' }}>{post.username}</p>
+                            <span style={{ color: 'var(--glass-border)' }}>·</span>
+                            <p style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{timeAgo(post.created_at)}</p>
+                            <span style={{ color: 'var(--glass-border)' }}>·</span>
+                            <span className="badge badge-gold" style={{ flexShrink: 0 }}>{LENS_LABELS[(post.lens as Lens) ?? "relevance"]}</span>
+                          </div>
+                          <button type="button" onClick={() => void likePost(post.id)} aria-label={post.liked_by_me ? "Unlike" : "Like"} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: post.liked_by_me ? 'var(--gold)' : 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, transition: 'color 0.15s ease' }}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill={post.liked_by_me ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5"><path d="M12 20s-7-4.3-7-10a4 4 0 0 1 7-2.4A4 4 0 0 1 19 10c0 5.7-7 10-7 10Z"/></svg>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{post.like_count}</span>
+                          </button>
+                        </div>
+                        <div onClick={() => collapsible && toggleExpanded(post.id)} style={{ cursor: collapsible ? 'pointer' : 'default', userSelect: collapsible ? 'none' : 'text'}}>
+                          <p style={{
+                            fontSize: '0.9rem',
+                            lineHeight: 1.7,
+                            color: 'var(--text-soft)',
+                            display: '-webkit-box',
+                            WebkitBoxOrient: 'vertical',
+                            WebkitLineClamp: expanded ? undefined : 2,
+                            overflow: 'hidden',
+                          }}>{post.body}</p>
+                          {collapsible && !expanded && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpanded(post.id) }} style={{ marginTop: '0.35rem', background: 'none', border: 'none', padding: 0, fontSize: '0.78rem', fontWeight: 600, color: 'var(--gold)', cursor: 'pointer' }}>Read more</button>
+                          )}
+                        </div>
+                        {expanded && (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingTop: '0.25rem' }}>
+                              <button type="button" onClick={() => void toggleComments(post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: commentsOpen[post.id] ? 'var(--gold)' : 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', transition: 'color 0.15s ease' }}>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 6h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3V8a2 2 0 0 1 2-2Z"/></svg>
+                                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{post.comment_count}</span>
+                                <span>Comments</span>
+                              </button>
+                              {collapsible && (
+                                <button type="button" onClick={() => toggleExpanded(post.id)} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, fontSize: '0.78rem', color: 'var(--muted)', cursor: 'pointer' }}>Show less</button>
+                              )}
+                            </div>
+                            {commentsOpen[post.id] && (
+                              <div style={{ padding: '0.875rem', background: 'var(--glass-strong)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {loadingComments[post.id] ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <div className="skeleton" style={{ height: '0.75rem', width: '100%', borderRadius: '99px' }} />
+                                    <div className="skeleton" style={{ height: '0.75rem', width: '75%', borderRadius: '99px' }} />
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    {(commentsByPost[post.id] ?? []).map(c => (
+                                      <div key={c.id}>
+                                        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.2rem' }}><span style={{ color: 'var(--text)', fontWeight: 500 }}>{c.username}</span>{' · '}{timeAgo(c.created_at)}</p>
+                                        <p style={{ fontSize: '0.875rem', color: 'var(--text-soft)', lineHeight: 1.6 }}>{c.body}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <input style={{ ...inputStyle, flex: 1 }} placeholder="Write a comment…" value={commentDrafts[post.id] ?? ""} onChange={e => setCommentDrafts(c => ({ ...c, [post.id]: e.target.value }))} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitComment(post.id) } }} onFocus={e => (e.target as HTMLInputElement).style.borderColor = 'var(--gold-border)'} onBlur={e => (e.target as HTMLInputElement).style.borderColor = 'var(--glass-border)'} />
+                                  <button type="button" onClick={() => void submitComment(post.id)}
+                                    style={{ padding: '0 0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--gold-border)', background: 'var(--gold-dim)', color: 'var(--gold)', cursor: 'pointer', fontSize: '1rem', transition: 'all 0.15s ease' }}
+                                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--gold)'; (e.currentTarget as HTMLButtonElement).style.color = '#0F0E0C' }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--gold-dim)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--gold)' }}>→</button>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </article>
+                      )
+                    })}
+                  </div>
+                ))
+              })()
+            )}
           </div>
 
         </main>

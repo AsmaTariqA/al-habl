@@ -1,123 +1,67 @@
-Here's the exact prompt for Claude Code:
+PROMPT FOR CLAUDE CODE — Fix AppShell Responsive Layout Bugs
 
-Fix: Route all client-side QF user API calls through a Next.js proxy
-Root cause confirmed: The Quran Foundation API (apis.quran.foundation/quran-reflect/v1/*) returns 500 when called directly from the browser. Server-side calls with the same token and headers return 200. This is a CORS/origin block on QF's end — they only allow server-to-server requests for user API endpoints.
-Two changes needed:
+CONTEXT:
+The file is src/components/circle/AppShell.tsx (or wherever it actually 
+lives in this repo — locate it first). It renders a left sidebar, a 
+center content column, and an optional right panel (used on the Circle 
+page for the members list).
 
-Change 1 — Create src/app/api/qf/[...path]/route.ts:
-This proxy intercepts all client-side calls to /api/qf/*, reads the user's token from Supabase using the qf_user_id httpOnly cookie, and forwards the request to QF server-side.
-tsimport { NextRequest, NextResponse } from "next/server"
-import { cookies } from "next/headers"
-import { getSupabaseAdmin } from "@/lib/supabase"
+BUGS TO FIX (reproduce by resizing the browser window through these 
+widths — especially watch the range 900px–1280px):
 
-async function getValidToken(userId: string): Promise<string | null> {
-  const supabase = getSupabaseAdmin()
-  const { data: session } = await supabase
-    .from("user_sessions")
-    .select("*")
-    .eq("qf_user_id", userId)
-    .single()
+1. BUG: Right panel (Circle Members list) disappears between roughly 
+   900px–1280px width. It currently only shows via an `xl:flex` class 
+   (1280px+), so in the 900–1279px range it's not rendered as a side 
+   panel — but it's ALSO not correctly appearing in its "stacked below 
+   content" fallback position. Instead it seems to render awkwardly 
+   after/inside the wrong part of the layout (reported as appearing 
+   "before/after the reflection box" unpredictably). 
+   
+   FIX: There should be exactly two states, with no gap between them:
+   - Below 1280px (xl): right panel renders as a full-width block, 
+     clearly stacked BELOW all main content (after the reflection 
+     composer, as the last element on the page)
+   - At 1280px+ (xl): right panel renders as a fixed-width column to 
+     the right of center content
+   Audit the current conditional rendering (`xl:hidden` / `hidden xl:flex` 
+   classes) and make sure there is no width range where the panel is 
+   simply missing from the DOM or visually orphaned.
 
-  if (!session) return null
+2. BUG: Center content (the ayah card, lens tabs, reflection feed) is 
+   NOT horizontally centered between the left sidebar and the edge of 
+   the viewport (or right panel, when visible). There is a visible gap 
+   on the LEFT side of the content column, making it look squeezed and 
+   off-center rather than evenly balanced.
 
-  if (new Date(session.expires_at) > new Date(Date.now() + 60_000)) {
-    return session.access_token
-  }
+   FIX: The center content column must be truly centered in the 
+   available space (viewport width minus sidebar minus right panel, 
+   when applicable) at ALL widths above the sidebar's own breakpoint 
+   (768px/md), not just above xl. Use a proper flex layout (flex-1 + 
+   justify-center on the container, with a max-width + w-full on the 
+   inner content div) rather than manual padding/margin offsets, since 
+   padding-based centering is what caused this bug originally.
 
-  const basicAuth = Buffer.from(
-    `${process.env.NEXT_PUBLIC_QF_CLIENT_ID}:${process.env.QF_CLIENT_SECRET}`
-  ).toString("base64")
+3. GENERAL REQUIREMENT: Test and confirm correct behavior at these 
+   specific widths, and report what you see at each: 768px, 900px, 
+   1000px, 1100px, 1280px, 1440px, 1920px. At every width:
+   - Sidebar (240px) is either hidden (<768px) or fixed-left (≥768px)
+   - Center content is visually centered in the remaining space, with 
+     no lopsided gap on either side
+   - Right panel is either: hidden and content isn't reserving space 
+     for it (<768px, no bottom-nav-covered overlap), stacked full-width 
+     below main content (768px–1279px), or a fixed right column 
+     (≥1280px) — with NO width range where it's missing entirely or 
+     misplaced
 
-  const res = await fetch(`${process.env.NEXT_PUBLIC_QF_AUTH_URL}/oauth2/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Authorization": `Basic ${basicAuth}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: session.refresh_token,
-    }),
-  })
+DO NOT:
+- Do not use fixed pixel padding to "fake" centering — use flexbox's 
+  actual centering (justify-center / mx-auto within a flex/grid parent)
+- Do not change the sidebar's own behavior or breakpoint (768px/md is 
+  correct and should stay)
+- Do not change what's rendered INSIDE the right panel (member list 
+  content) — only fix its layout positioning and responsive visibility
 
-  if (!res.ok) return null
-  const tokens = await res.json()
-
-  await supabase.from("user_sessions").update({
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token ?? session.refresh_token,
-    expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-  }).eq("qf_user_id", userId)
-
-  return tokens.access_token
-}
-
-async function handler(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get("qf_user_id")?.value
-  if (!userId) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-
-  const token = await getValidToken(userId)
-  if (!token) return NextResponse.json({ error: "No valid token" }, { status: 401 })
-
-  const { path } = await context.params
-  const search = request.nextUrl.search
-  const url = `${process.env.NEXT_PUBLIC_QF_API_URL}/quran-reflect/v1/${path.join("/")}${search}`
-
-  const init: RequestInit = {
-    method: request.method,
-    headers: {
-      "x-auth-token": token,
-      "x-client-id": process.env.NEXT_PUBLIC_QF_CLIENT_ID!,
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-    },
-  }
-
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = await request.text()
-  }
-
-  const qfRes = await fetch(url, init)
-  const body = await qfRes.text()
-  return new NextResponse(body, {
-    status: qfRes.status,
-    headers: { "Content-Type": "application/json" },
-  })
-}
-
-export const GET = handler
-export const POST = handler
-export const PUT = handler
-export const DELETE = handler
-export const PATCH = handler
-
-Change 2 — Edit src/lib/qf-api.ts:
-Find this line:
-tsconst USER_BASE = `${publicConfig.QF_API_URL}/quran-reflect/v1`   // rooms, posts, comments, profile
-Replace with:
-tsconst USER_BASE = typeof window === "undefined"
-  ? `${publicConfig.QF_API_URL}/quran-reflect/v1`  // server-side: direct to QF
-  : `/api/qf`                                        // client-side: through proxy
-Also find deletePost function which uses a raw hardcoded URL — update it to use the same pattern:
-tsexport async function deletePost(accessToken: string, postId: string) {
-  const base = typeof window === "undefined"
-    ? `${publicConfig.QF_API_URL}/quran-reflect/v1`
-    : "/api/qf"
-  const response = await fetch(`${base}/posts/${postId}`, {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "x-auth-token": accessToken,
-      "x-client-id": CLIENT_ID,
-    },
-  })
-  return response.ok
-}
-
-What NOT to change:
-
-AUTH_BASE (/auth/v1/) — bookmarks, notes, streaks, goals. Test if these also need proxying after the main fix. If they return 500 from browser too, create a second proxy at app/api/qf-auth/[...path]/route.ts with AUTH_BASE pointing to /api/qf-auth client-side.
-CONTENT_BASE (/content/api/v4/) — already goes through Next.js API routes, working fine.
-getClientAccessToken in lib/client-access.ts — leave as is, the proxy handles auth independently via the httpOnly cookie.
+AFTER FIXING:
+Show me the diff of what changed in AppShell.tsx (and any other file you 
+had to touch), and confirm you tested the specific width range 900px–1280px 
+where the bug was most visible, since that's the range currently broken.

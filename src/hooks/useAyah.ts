@@ -13,7 +13,12 @@ import {
 } from "@/lib/circle-constants"
 import type { AudioRecitation, Chapter, Tafsir, Verse } from "@/types/circle"
 
-const AYAH_CACHE_PREFIX = "qf_daily_ayah"
+// Bump CACHE_VERSION whenever the shape of the cached verse payload
+// changes (e.g. word-by-word text now uses real Arabic Unicode instead
+// of private-use glyph codepoints). Users on an older cache will skip
+// the cache and refetch once.
+const AYAH_CACHE_VERSION = 2
+const AYAH_CACHE_PREFIX = `qf_daily_ayah:v${AYAH_CACHE_VERSION}`
 const TAFSIR_CACHE_PREFIX = "qf_daily_tafsir"
 
 interface CachedAyah {
@@ -31,6 +36,25 @@ async function fetchWithRetry<T>(fn: () => Promise<T | null>, retries = 3, delay
   return null
 }
 
+async function fetchDailyAyahKey(): Promise<{ verseKey: string; isAuto: boolean } | null> {
+  // Server is the source of truth for which ayah is "today's ayah".
+  // If the user has explicitly selected one via AyahSelector, it is
+  // persisted in daily_ayah_cache and returned here. If not, the server
+  // returns the date-based default (same value as getTodayVerseKey()).
+  // Without this fetch, a manually-selected ayah would revert to the
+  // auto-rotated default on every page refresh, logout/login, and
+  // navigation back to the circle page.
+  try {
+    const res = await fetch("/api/circle/daily-ayah", { cache: "no-store" })
+    if (!res.ok) return null
+    const data = (await res.json()) as { verse_key?: string; is_auto?: boolean }
+    if (typeof data.verse_key !== "string" || !data.verse_key) return null
+    return { verseKey: data.verse_key, isAuto: Boolean(data.is_auto) }
+  } catch {
+    return null
+  }
+}
+
 export function useAyah(overrideVerseKey?: string) {
   const [verse, setVerse] = useState<Verse | null>(null)
   const [chapter, setChapter] = useState<Chapter | null>(null)
@@ -40,12 +64,39 @@ export function useAyah(overrideVerseKey?: string) {
   const [tafsirLoading, setTafsirLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Resolved "today's ayah" verse key — fetched from the server, so a
+  // user-selected ayah persists across refresh, logout/login, and
+  // navigation. Falls back to the deterministic date-based default
+  // only when the server can't be reached or returns nothing.
+  const [resolvedDefaultKey, setResolvedDefaultKey] = useState<string>(() => getTodayVerseKey())
+
   const dateKey = useMemo(() => getStudyDateKey(), [])
   const dayNumber = useMemo(() => getTodayDayNumber(), [])
   const verseNumber = useMemo(() => getTodayVerseNumber(), [])
-  const defaultVerseKey = useMemo(() => getTodayVerseKey(), [])
-  const verseKey = overrideVerseKey ?? defaultVerseKey
+  const fallbackDefaultKey = useMemo(() => getTodayVerseKey(), [])
+  const verseKey = overrideVerseKey ?? resolvedDefaultKey
   const lens = useMemo(() => getTodayLens(), [])
+
+  // Fetch the persisted daily ayah from the server on mount. This
+  // runs once (or whenever dateKey changes). Until it resolves we
+  // optimistically render the deterministic default so the UI is not
+  // stuck loading — once the server responds, if a different (user-
+  // selected) verse is returned, the rest of the effect chain re-fetches
+  // the verse data for the new key.
+  useEffect(() => {
+    let cancelled = false
+    void fetchDailyAyahKey().then((result) => {
+      if (cancelled) return
+      if (!result) {
+        setResolvedDefaultKey(fallbackDefaultKey)
+        return
+      }
+      setResolvedDefaultKey(result.verseKey)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [dateKey, fallbackDefaultKey])
 
   const fetchVerse = useCallback(async () => {
     setLoading(true)
@@ -59,11 +110,17 @@ export function useAyah(overrideVerseKey?: string) {
       if (cached) {
         try {
           const parsed = JSON.parse(cached) as CachedAyah
-          setVerse(parsed.verse)
-          setChapter(parsed.chapter)
-          setAudio(parsed.audio)
-          setLoading(false)
-          return parsed.verse
+          // Cache is only valid if it matches the currently resolved
+          // verse key — otherwise it is stale (user picked a different
+          // ayah in another session) and we must refetch.
+          if (parsed.verse?.verse_key === verseKey) {
+            setVerse(parsed.verse)
+            setChapter(parsed.chapter)
+            setAudio(parsed.audio)
+            setLoading(false)
+            return parsed.verse
+          }
+          localStorage.removeItem(cacheKey)
         } catch {
           localStorage.removeItem(cacheKey)
         }

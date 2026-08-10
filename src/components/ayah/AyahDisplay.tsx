@@ -8,7 +8,7 @@ interface AyahDisplayProps {
 export function AyahDisplay({ ayah, isLoading = false }: AyahDisplayProps) {
   if (isLoading) {
     return (
-      <div className="glass-card" style={{ padding: '2rem' }}>
+      <div className="glass-card" style={{ padding: '3rem' }}>
         <div className="skeleton" style={{ height: '1.5rem', width: '40%', marginBottom: '1rem' }} />
         <div className="skeleton" style={{ height: '3rem', marginBottom: '1rem' }} />
         <div className="skeleton" style={{ height: '1rem', width: '80%' }} />

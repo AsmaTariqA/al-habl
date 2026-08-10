@@ -82,18 +82,27 @@ export function AyahSelector({
     setSaving(true)
     const verseKey = `${selectedSurah.number}:${selectedVerse}`
     try {
+      console.log("[AyahSelector] Saving ayah:", verseKey)
       const res = await fetch("/api/circle/daily-ayah", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ verse_key: verseKey, is_auto: false }),
       })
+      console.log("[AyahSelector] POST response:", res.status, res.ok)
       if (res.ok) {
+        const responseData = await res.json()
+        console.log("[AyahSelector] POST success response:", responseData)
         onSelect(verseKey)
         setOpen(false)
         setSelectedSurah(null)
         setSelectedVerse(null)
         setSearch("")
+      } else {
+        const errorData = await res.text()
+        console.error("[AyahSelector] POST failed:", res.status, errorData)
       }
+    } catch (err) {
+      console.error("[AyahSelector] Error saving ayah:", err)
     } finally {
       setSaving(false)
     }

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+
 :root {
   color-scheme: light;
   --ink: #fafaf7;
@@ -189,6 +190,66 @@ p {
   width: 100%;
   max-width: 520px;
   padding: 0 16px 120px;
+}
+
+/*
+  ── Application shell (three-region layout) ──
+  A real flex row instead of fixed sidebars + padding-offset hacks.
+  The center ("app-main") is the flexible region and receives all
+  remaining available width (min-width: 0 so internal content can
+  never force the flex child wider than the viewport).
+*/
+.app-shell {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--ink);
+  color: var(--text);
+}
+
+.app-sidebar {
+  flex: 0 0 240px;
+  width: 240px;
+  min-width: 0;
+  display: none;
+  position: relative;
+  z-index: 30;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
+}
+
+.app-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.app-right-panel {
+  flex: 0 0 320px;
+  width: 320px;
+  min-width: 0;
+  display: none;
+  position: relative;
+  z-index: 20;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
+}
+
+@media (min-width: 1024px) {
+  .app-sidebar {
+    display: flex;
+  }
+}
+
+@media (min-width: 1280px) {
+  .app-right-panel {
+    display: flex;
+  }
 }
 
 .input-field,
