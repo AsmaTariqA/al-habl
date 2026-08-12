@@ -427,7 +427,11 @@ const audioRef = useRef<HTMLAudioElement | null>(null)
                     } catch {}
                   }
                   setSelectedOverrideVerseKey(vk)
-                  void fetchVerse(vk)
+                  // No explicit refetch needed: useAyah re-runs
+                  // fetchVerse() via its own useEffect whenever the
+                  // override-derived `verseKey` changes, so passing
+                  // the key here would be redundant (and the hook
+                  // signature doesn't accept it).
                 }}
               />
               <button type="button" aria-label="Log out" style={iconBtnStyle}
